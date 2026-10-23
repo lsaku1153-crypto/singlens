@@ -1,0 +1,9 @@
+得意黑 Smiley Sans
+Copyright 2022, atelierAnchor <https://atelier-anchor.com>
+SIL Open Font License 1.1
+Source: https://github.com/atelier-anchor/smiley-sans
+License text: see OFL.txt (与 Outfit 同一份 OFL 1.1，已在本目录)
+
+本目录下的 smiley-subset.woff2 是用 fontTools/pyftsubset 生成的
+字符子集（仅含本 UI 实际用到的字符），依据 OFL 1.1 第 5 条
+仍以同一许可分发。

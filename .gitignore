@@ -1,0 +1,56 @@
+﻿# virtual env
+.venv/
+.venv_*/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# local data, recordings, models, databases, secrets
+/data/
+/experiments/
+/docs/
+/实验素材/
+*.db
+*.sqlite
+*.onnx
+*.pt
+*.pth
+*.ckpt
+*.key
+.env
+*llm_key*
+*operator_token*
+
+# media / generated assets
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.aac
+*.ogg
+*.opus
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.pdf
+*.docx
+*.pptx
+*.xlsx
+
+# tooling
+.chrome-profile*/
+.puppeteer_profile/
+.playwright-cli/
+.workbuddy/
+.tmp_thesis/
+.trae-html-share-packages/
+*.zip
+*.log
+

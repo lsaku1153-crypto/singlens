@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>盲评 · SingLens 实验</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  :root{--bg:#f6f8fa;--card:#fff;--ink:#1a1d21;--ink2:#5b6472;--ink3:#8b95a3;
+        --line:#e3e8ee;--acc:#12a97e;--blue:#2b7fff}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font:14px/1.7 -apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;padding:28px 20px 60px}
+  .wrap{max-width:700px;margin:0 auto}
+  h1{font-size:23px;font-weight:800;letter-spacing:-.02em}
+  .sub{color:var(--ink2);font-size:13px;margin:6px 0 20px}
+  .card{background:var(--card);border-radius:12px;padding:22px 24px;margin-bottom:16px;
+        box-shadow:0 1px 3px #0000000d,0 6px 20px #00000008}
+  label{display:block;font-size:12px;color:var(--ink2);margin-bottom:5px;font-weight:600}
+  input{padding:9px 11px;border:1px solid var(--line);border-radius:7px;font:inherit;font-size:14px;width:200px}
+  input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px #2b7fff18}
+  button{padding:10px 20px;border:none;border-radius:8px;font:inherit;font-size:14px;font-weight:600;
+        cursor:pointer;background:var(--ink);color:#fff;transition:.15s}
+  button:hover:not(:disabled){opacity:.85}
+  button:disabled{opacity:.35;cursor:not-allowed}
+  .prog{height:7px;background:#eef1f5;border-radius:4px;overflow:hidden;margin:6px 0 4px}
+  .prog i{display:block;height:100%;background:var(--acc);width:0%;transition:.25s}
+  .pinfo{display:flex;justify-content:space-between;font-size:12px;color:var(--ink3)}
+  .rubric{background:#f8fafb;border-radius:9px;padding:14px 16px;font-size:13px;line-height:1.85;color:var(--ink2)}
+  .rubric b{color:var(--ink)}
+  .rubric .r{display:flex;gap:10px;align-items:baseline}
+  .rubric .r span:first-child{font-weight:700;color:var(--ink);flex:none;width:64px}
+  audio{width:100%;margin:16px 0 6px}
+  .scores{display:flex;gap:10px;margin:14px 0}
+  .scores button{flex:1;padding:16px 0;font-size:20px;font-weight:800;background:#eef1f5;color:var(--ink)}
+  .scores button:hover:not(:disabled){background:var(--blue);color:#fff}
+  .scores button.sel{background:var(--acc);color:#fff}
+  .rr{font-size:12px;color:var(--ink3);text-align:center;margin-top:-6px;margin-bottom:10px}
+  .note{font-size:12px;color:var(--ink3);margin-top:4px}
+  .msg{padding:11px 14px;border-radius:8px;font-size:13px;margin-top:12px}
+  .msg.ok{background:#e8f7f1;color:#0b6b4f}
+  .msg.bad{background:#fdecea;color:#a02c14}
+  .msg.info{background:#eef4ff;color:#1a4fa8}
+  .done{text-align:center;padding:34px 0}
+  .done .big{font-size:44px;margin-bottom:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>演唱表现力盲评</h1>
+  <p class="sub">SingLens 毕业设计实验 · 约 10 分钟 · 感谢帮忙</p>
+
+  <div class="card" id="c0">
+    <label>你的名字 / 代号（用于记录谁评过）</label>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <input id="rater" placeholder="例：小李">
+      <button id="btnStart">开始评分</button>
+    </div>
+    <div id="msg0"></div>
+
+    <div class="rubric" style="margin-top:18px">
+      <b>评分标准：评「唱得有没有情感表现力」</b>
+      <p style="margin:8px 0 10px;color:var(--ink3);font-size:12.5px">
+        ⚠️ <b>不是</b>评音准、<b>不是</b>评技巧高低，也<b>不用</b>管录音质量好不好。<br>
+        只问一个问题：<b>这段演唱有没有在"表达"？还是一直平铺直叙？</b>
+      </p>
+      <div class="r"><span>1 分</span><span>完全平铺直叙，像念歌词，从头到尾一个样</span></div>
+      <div class="r"><span>2 分</span><span>基本平，偶尔有一点点变化</span></div>
+      <div class="r"><span>3 分</span><span>正常唱，有基本的起伏</span></div>
+      <div class="r"><span>4 分</span><span>有明显的情感处理，能听出在表达什么</span></div>
+      <div class="r"><span>5 分</span><span>很有感染力，能打动人</span></div>
+      <p style="margin-top:10px;color:var(--ink3);font-size:12.5px">
+        顺序是随机的，看不到演唱者是谁，也看不到别人打了多少分。<br>
+        <b>凭第一感觉打就行，不用反复听。</b>
+      </p>
+    </div>
+  </div>
+
+  <div class="card" id="c1" hidden>
+    <div class="prog"><i id="bar"></i></div>
+    <div class="pinfo"><span id="pn">0 / 0</span><span id="pl"></span></div>
+
+    <audio id="au" controls preload="auto"></audio>
+    <div style="display:flex;gap:10px;align-items:center">
+      <button id="btnReplay" style="background:#eef1f5;color:var(--ink);padding:7px 14px;font-size:13px">↻ 重听</button>
+      <span class="note" id="dur"></span>
+    </div>
+
+    <div class="scores" id="sc">
+      <button data-v="1">1</button><button data-v="2">2</button>
+      <button data-v="3">3</button><button data-v="4">4</button>
+      <button data-v="5">5</button>
+    </div>
+    <div class="rr">← 平铺直叙　　　　　正常唱　　　　　很有感染力 →</div>
+    <div id="msg1"></div>
+  </div>
+
+  <div class="card" id="c2" hidden>
+    <div class="done">
+      <div class="big">🎉</div>
+      <h2 style="font-size:19px;font-weight:800">全部评完了，谢谢！</h2>
+      <p style="color:var(--ink2);font-size:13.5px;margin-top:8px" id="doneTxt"></p>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const api = async (m, p, b) => {
+  const init = { method: m, headers: {} };
+  if (b) { init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(b); }
+  const r = await fetch(p, init);
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error?.message || '请求失败');
+  return j.data;
+};
+let RATER = '', ITEMS = [], IDX = 0, SEL = null;
+
+/* ★ 评分者编号由**服务端签发**（2026-09-24，审计 §3.2）。
+   原来这里是 `RATER = $('rater').value.trim()` —— 名字自己填，编号自己报，
+   于是一个人能凭空造出 40 个"评分者"。而盲评的**评分者维度本身就是数据**
+   （Spearman / ICC 靠它算），注水直接污染论文第 7 节的相关性结论。
+   现在：页面加载时向服务端登记一个编号，存在 localStorage（同一台设备
+   刷新页面还是同一个人）；用户填的名字只作为**标签**一并登记，方便主试核对。 */
+function storeRater(id, label) {
+  RATER = id;
+  try { localStorage.setItem('sl.rater', id); } catch { /* 隐私模式 */ }
+  if (label) { try { localStorage.setItem('sl.rater_label', label); } catch { /* ignore */ } }
+}
+
+async function ensureRater(label) {
+  // 先用上次那个编号（同一台设备 = 同一位评分者），服务端认不认由它决定。
+  let saved = '';
+  try { saved = localStorage.getItem('sl.rater') || ''; } catch { /* 隐私模式 */ }
+  if (saved && !label) return saved;                    // 只是刷新页面，不用再登记
+  const q = label ? `?label=${encodeURIComponent(label)}` : '';
+  const d = await api('POST', `/api/experiment/rater${q}`);
+  storeRater(d.rater_id, label);
+  return d.rater_id;
+}
+
+$('btnStart').onclick = async () => {
+  const name = $('rater').value.trim();
+  if (!name) return msg('msg0', 'bad', '请填一个名字或代号');
+  try {
+    // 已经有编号的老设备：直接用，不再占一个新名额
+    let rid = '';
+    try { rid = localStorage.getItem('sl.rater') || ''; } catch { /* 隐私模式 */ }
+    RATER = rid || await ensureRater(name);
+    const d = await api('GET', `/api/experiment/rate/list?rater_id=${encodeURIComponent(RATER)}`);
+    if (!d.items.length) return msg('msg0', 'bad',
+      '还没有可评的录音。请先让主试在采集页录入录音。');
+    ITEMS = d.items; IDX = 0;
+    $('c0').hidden = true; $('c1').hidden = false;
+    loadCurrent();
+  } catch (e) {
+    msg('msg0', 'bad', e.message +
+      '<br><span style="font-size:12px">如果提示"名额已满"，请让主试核对人数后调高上限。</span>');
+  }
+};
+
+function loadCurrent() {
+  if (IDX >= ITEMS.length) return finish();
+  const it = ITEMS[IDX];
+  SEL = null;
+  document.querySelectorAll('#sc button').forEach(b => b.classList.remove('sel'));
+  const au = $('au');
+  au.src = it.audio_url;
+  au.play().catch(() => {});       // 自动播放可能被拦，静默失败即可
+  $('dur').textContent = it.duration_ms ? `约 ${(it.duration_ms / 1000).toFixed(0)} 秒` : '';
+  const done = ITEMS.filter(x => x.rated).length;
+  $('pn').textContent = `${IDX + 1} / ${ITEMS.length}`;
+  $('pl').textContent = `已评 ${done}`;
+  $('bar').style.width = (done / ITEMS.length * 100) + '%';
+  $('msg1').innerHTML = '';
+}
+
+document.querySelectorAll('#sc button').forEach(b => {
+  b.onclick = async () => {
+    if (SEL !== null) return;
+    SEL = Number(b.dataset.v);
+    b.classList.add('sel');
+    const it = ITEMS[IDX];
+    try {
+      await api('POST', '/api/experiment/rate',
+        { recording_id: it.recording_id, rater_id: RATER, score: SEL });
+      it.rated = true;
+      setTimeout(() => { IDX++; loadCurrent(); }, 320);   // 让选中态闪一下
+    } catch (e) {
+      msg('msg1', 'bad', e.message);
+      b.classList.remove('sel'); SEL = null;
+    }
+  };
+});
+$('btnReplay').onclick = () => { $('au').currentTime = 0; $('au').play(); };
+
+async function finish() {
+  $('c1').hidden = true; $('c2').hidden = false;
+  try {
+    const p = await api('GET', '/api/experiment/progress');
+    $('doneTxt').innerHTML =
+      `你已提交 <b>${p.ratings}</b> 条评分。可以关掉这个页面了。<br>
+       <span style="color:var(--ink3);font-size:12px">
+       如果还想补充评分，刷新页面重新进入即可（已评过的不需要重评）。</span>`;
+  } catch { $('doneTxt').textContent = '可以关掉这个页面了。'; }
+}
+
+function msg(id, cls, t) { $(id).innerHTML = `<div class="msg ${cls}">${t}</div>`; }
+</script>
+</body>
+</html>

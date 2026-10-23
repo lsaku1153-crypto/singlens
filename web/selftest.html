@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>接口契约自检 · SingLens</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  :root{--ok:#12a97e;--bad:#d9411c;--ink:#111;--ink2:#666;--ink3:#999;--line:#e6e6e6;--bg:#f1fefb}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font:14px/1.7 "PingFang SC","Microsoft YaHei",system-ui,sans-serif;padding:40px 32px 80px}
+  h1{font-size:30px;font-weight:800;letter-spacing:-.02em}
+  .sub{color:var(--ink2);margin:10px 0 26px;font-size:13.5px}
+  .card{background:#fff;border-radius:14px;padding:22px 24px;margin-bottom:14px;box-shadow:0 1px 2px #00000008,0 8px 24px #00000006}
+  .card h2{font-size:15px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:9px}
+  .tally{display:flex;gap:26px;margin:18px 0 26px}
+  .tally div{background:#fff;border-radius:14px;padding:16px 22px;box-shadow:0 1px 2px #00000008,0 8px 24px #00000006}
+  .tally .k{font-size:11.5px;color:var(--ink3)}
+  .tally .n{font-size:28px;font-weight:800;letter-spacing:-.02em;margin-top:4px}
+  .n.ok{color:var(--ok)} .n.bad{color:var(--bad)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);padding:0 0 9px;border-bottom:1px solid var(--line)}
+  td{padding:9px 0;border-bottom:1px solid #f4f4f4;vertical-align:top}
+  td.s{width:70px;font-weight:700}
+  td.s.ok{color:var(--ok)} td.s.bad{color:var(--bad)}
+  code{font-family:"JetBrains Mono",Consolas,monospace;font-size:12px;background:#0000000a;padding:1px 6px;border-radius:5px}
+  .grp{margin-top:18px}
+  .grp > b{font-size:13px;display:block;margin-bottom:8px}
+  .note{font-size:12.5px;color:var(--ink2);margin-top:14px;line-height:1.85}
+  .pill{font-size:11px;padding:3px 10px;border-radius:20px;background:#eef8f4;color:var(--ok)}
+  .pill.b{background:#fff0ec;color:var(--bad)}
+</style>
+</head>
+<body>
+
+<h1>接口契约自检</h1>
+<p class="sub">验证当前数据源产出的数据，是否严格符合 <code>docs/接口契约.md</code>。
+后端做好后，把 <code>?src=api</code> 换上，同一个页面就能验后端。</p>
+
+<div class="tally" id="tally"></div>
+<div id="out"></div>
+
+<script type="module">
+import { source, isMock, selfCheck } from './js/data/index.js';
+import { METRIC_IDS } from './js/data/source.js';
+
+const results = [];
+function check(group, name, pass, detail = '') {
+  results.push({ group, name, pass, detail });
+}
+
+function isNum(v) { return typeof v === 'number' && Number.isFinite(v); }
+function isNullableNum(v) { return v === null || isNum(v); }
+
+// ── 取报告 ───────────────────────────────────────────────
+// ★ 这里原来写死了 source.getReport('sess_mock_main')。
+//   打真实后端时那个会话不存在，页面直接抛错、一项都跑不了 ——
+//   与页面开头"换上 ?src=api 就能验后端"的说法不符。
+//   所以加一个 ?uid=<真实会话号> 参数：
+//     ?src=mock                      用 mock（默认）
+//     ?src=api&uid=<会话号>           验真实后端的那次会话
+const uid = new URLSearchParams(location.search).get('uid');
+let report;
+if (uid) {
+  report = await source.getReport(uid);
+} else if (!isMock) {
+  document.getElementById('tally').innerHTML = `
+    <div style="grid-column:1/-1;padding:18px 20px;background:#fff8e6;
+                border-left:4px solid #d99b1f;border-radius:6px;font-size:13.5px;line-height:1.9">
+      <b>要验真实后端，需要指定一个真实会话</b><br>
+      用法：<code style="background:#fff;padding:2px 6px;border-radius:3px">
+      ?src=api&amp;uid=&lt;会话号&gt;</code><br><br>
+      会话号从哪来：<br>
+      · 跑 <code>experiments/smoke_experiment.py</code>，它会打印会话号<br>
+      · 或在浏览器打开 <code>/rate</code> / <code>/collect</code> 走一遍流程<br>
+      · 或直接调 <code>POST /api/upload</code> 上传一段音频，返回里的 <code>session_uid</code>
+      <br><br>
+      <span style="color:#667">（另外 <a href="/apitest.html">/apitest.html</a>
+      会自动跑完整流程 + 验适配层，不用手动指定会话号）</span>
+    </div>`;
+  throw new Error('未指定 uid');
+} else {
+  report = await selfCheck();
+}
+
+// ── 1. ScoreReport 顶层 ──────────────────────────────────
+const topRequired = ['session_uid', 'pitch', 'rhythm', 'expressiveness', 'total',
+                     'weight_version', 'metrics_excluded', 'segments', 'problems',
+                     'comments', 'comments_by_metric', 'meta'];
+topRequired.forEach((k) => check('ScoreReport', `顶层字段 ${k}`, k in report,
+  k in report ? '' : '缺失（契约 §2.2 要求必填）'));
+check('ScoreReport', 'retry_of_uid 可为 null', report.retry_of_uid === null || typeof report.retry_of_uid === 'string');
+
+/* ★ `total` 的判据要**分两种情况**（2026-09-24 修）。
+   契约 §2.2 写的是"必填"，但 §3.2 同时写着 **null = 本次未评估，绝不用 0 代替** ——
+   模式 B 的第一遍（拿自己当参考）本来就该是 null：没有"别人"可比。
+   原来的断言是 `isNum(report.total) && 0..100`，撞上这种会话就报 FAIL，
+   而 FAIL 的原因是**产品设计如此**，不是违约。假失败会让整页红着没人看。
+   正确判据：
+     · 有值 → 必须是 0–100 的数
+     · 是 null → **必须说得出原因**（自比降级，或音准/节奏里至少一项为 null），
+                否则就是"悄悄没算出来"，那才是违约 */
+const selfRef = !!(report.meta && report.meta.self_reference);
+const totalNullOk = selfRef || report.pitch.score === null || report.rhythm.score === null;
+check('ScoreReport', 'total 是 0-100 的数，或为 null（未评估）',
+  isNullableNum(report.total) && (report.total === null || (report.total >= 0 && report.total <= 100)),
+  `实际 ${report.total}${report.total === null ? (selfRef ? '（自比降级，契约 §3.2）' : '') : ''}`);
+if (report.total === null) {
+  check('ScoreReport', 'total 为 null 时能说出原因',
+    totalNullOk,
+    totalNullOk ? (selfRef ? `自比降级：${report.meta.self_reference_reason || '参考就是本次演唱本身'}`
+                           : '音准或节奏未评估 ⇒ 合成不出总分')
+                : 'null 但没有任何解释 —— 「没算出来」不能沉默（契约 §3.2）');
+}
+
+// ── 2. 三个分量 ──────────────────────────────────────────
+// 同样分两种情况：自比降级时 pitch/rhythm 就该是 null（见上）。
+check('分量', 'pitch.score 是数或 null（自比降级）',
+  isNullableNum(report.pitch.score),
+  report.pitch.score === null ? (selfRef ? '自比降级，符合预期' : 'null 但不是自比降级 —— 要能解释') : '');
+check('分量', 'pitch.accuracy/stability 可空', isNullableNum(report.pitch.accuracy) && isNullableNum(report.pitch.stability));
+check('分量', 'rhythm.score 是数或 null（自比降级）',
+  isNullableNum(report.rhythm.score),
+  report.rhythm.score === null ? (selfRef ? '自比降级，符合预期' : 'null 但不是自比降级 —— 要能解释') : '');
+['accuracy', 'stability', 'rubato'].forEach((k) =>
+  check('分量', `rhythm.${k} 可空`, isNullableNum(report.rhythm[k])));
+
+// ── 3. 六指标 ────────────────────────────────────────────
+METRIC_IDS.forEach((id) => {
+  const key = id === 'vibrato' ? 'vibrato_rate' : id;
+  check('六指标', `expressiveness.${key} 可空`, isNullableNum(report.expressiveness[key]),
+    `实际 ${report.expressiveness[key]}`);
+});
+/* ⚠️ `weights` **不该**覆盖六项：被剔除的指标不参与加权，
+   权重按比例分给其余项（analysis/scoring.py 的 score_expressiveness）。
+   原断言要求六项都在，于是只要有一项算不出来就 FAIL —— 而那是设计如此。
+   正确判据：weights 覆盖"没被剔除的项"，且不含被剔除的项（含 0 也不行）。 */
+check('六指标', 'weights 覆盖未剔除的项、且不含被剔除的项',
+  METRIC_IDS.filter((id) => !report.metrics_excluded.includes(id))
+    .every((id) => typeof report.expressiveness.weights[id] === 'number') &&
+  report.metrics_excluded.every((id) => !(id in report.expressiveness.weights)),
+  `weights 现有键：${Object.keys(report.expressiveness.weights).join(', ')}；` +
+  `剔除：${report.metrics_excluded.join(', ') || '无'}`);
+/* normalized 仍然要求六项齐全（值可以是 null）——
+   雷达图按六个轴画，缺轴会让图少一个顶点。 */
+check('六指标', 'normalized 覆盖六项（值可为 null）',
+  METRIC_IDS.every((id) => id in report.expressiveness.normalized),
+  `实际键：${Object.keys(report.expressiveness.normalized).join(', ')}`);
+
+// ── 4. 降级一致性（最关键的一条）────────────────────────
+const vibratoNull = report.expressiveness.vibrato_rate === null;
+const vibratoExcluded = report.metrics_excluded.includes('vibrato');
+check('降级', 'vibrato 为 null ⟺ metrics_excluded 含 vibrato',
+  vibratoNull === vibratoExcluded,
+  `null=${vibratoNull} excluded=${vibratoExcluded}`);
+report.metrics_excluded.forEach((id) => {
+  check('降级', `被剔除的 ${id} 不参与加权`,
+    report.expressiveness.weights[id] === 0 || report.expressiveness.weights[id] === undefined,
+    `权重 ${report.expressiveness.weights[id]}`);
+  const c = report.comments_by_metric[id];
+  /* ⚠️ 判据改过（2026-09-24）：**不再要求 `plain === null`**。
+     后端现在会把"为什么没评"写进 `plain`（例如"只有 2 个音符检出颤音
+     （需 ≥ 3 个）"）—— 那句话对用户是有用的：只写「本次未评估」，
+     用户会以为系统坏了。真正不能有的是 `action`（给不出建议就别给）。 */
+  check('降级', `被剔除的 ${id} 文案标注"本次未评估"`,
+    !!c && c.level.includes('未评估') && !c.action,
+    c ? `level=${c.level}${c.action ? ' ⚠️ 却给了 action' : ''}` : '缺文案');
+});
+
+// ── 5. NoteSegment ──────────────────────────────────────
+const segFields = ['note_index','ref_note_index','start_ms','end_ms','pitch_midi',
+  'pitch_cents_dev','onset_dev_ms','rms_mean','rms_peak','onset_rise_ms',
+  'vibrato_rate','vibrato_depth','centroid_mean','jump_suppressed','align_method'];
+const s0 = report.segments[0] || {};
+segFields.forEach((f) => check('NoteSegment', `字段 ${f}`, f in s0, f in s0 ? '' : '缺失（契约 §2.1）'));
+/* ⚠️ `note_index` 必须**严格递增**，但**不要求从 0 开始、也不要求连续**
+   （2026-09-24 修）。原断言是 `note_index === i`（0 起、逐 1 递增），
+   它撞上了「只评参考覆盖的那一段」这个设计：参考曲目只有一句，
+   用户可能唱了好几遍，后端只评对齐上的那一段 —— 此时 segments 是
+   整段演唱的一个**窗口**，第一个音可能就是第 23 个音。
+   递增这个判据仍然有意义（顺序不能乱），而"从 0 开始"只在未窗口化时成立。 */
+const ew = (report.meta && report.meta.eval_window) || {};
+const windowed = !!(ew.notes_used && ew.notes_total && ew.notes_used < ew.notes_total);
+const idxs = report.segments.map((s) => s.note_index);
+check('NoteSegment', 'note_index 严格递增' + (windowed ? '（本报告只评了一段）' : ''),
+  idxs.every((v, i) => i === 0 || v > idxs[i - 1]),
+  windowed ? `窗口化：评了 ${ew.notes_used}/${ew.notes_total} 个音，首个 note_index=${idxs[0]}`
+           : `首个 note_index=${idxs[0]}，共 ${idxs.length} 个`);
+if (!windowed) {
+  check('NoteSegment', '未窗口化时 note_index 从 0 起且连续',
+    idxs.every((v, i) => v === i), `实际 ${idxs.slice(0, 8).join(',')}…`);
+}
+check('NoteSegment', 'end_ms > start_ms',
+  report.segments.every((s) => s.end_ms > s.start_ms));
+check('NoteSegment', 'jump_suppressed 是布尔',
+  report.segments.every((s) => typeof s.jump_suppressed === 'boolean'));
+check('NoteSegment', 'align_method 取值合法',
+  report.segments.every((s) => ['DTW','EQUAL_DIVISION'].includes(s.align_method)));
+check('NoteSegment', 'vibrato 只在长音上出现或全为 null',
+  report.segments.every((s) => s.vibrato_rate === null || (s.end_ms - s.start_ms) > 300));
+
+// ── 6. ProblemSegment ───────────────────────────────────
+const p = report.problems[0];
+if (p) {
+  ['kind','start_ms','end_ms','note_range','severity','headline','detail']
+    .forEach((f) => check('ProblemSegment', `字段 ${f}`, f in p, f in p ? '' : '缺失（契约 §2.4）'));
+  check('ProblemSegment', 'kind 取值合法', ['PITCH','RHYTHM','DYNAMIC'].includes(p.kind));
+  check('ProblemSegment', 'severity 取值合法', ['HIGH','MEDIUM'].includes(p.severity));
+}
+check('ProblemSegment', '最多 3 条', report.problems.length <= 3, `实际 ${report.problems.length}`);
+
+// ── 7. Evidence ─────────────────────────────────────────
+/* ★ 判据分情况（2026-09-24 修）：
+   契约 §4.1 的 `evidence` 是**可选**的，而且三个子结构各自依赖对应的指标 ——
+   没有长音就没有颤音频谱、节奏没算出来就没有 onset 趋势。
+   原断言要求三个子结构**全在**，于是在一份"颤音未评估"的报告上
+   必然 FAIL 两条 —— 那两条 FAIL 是**设计如此**，不是违约。
+   正确判据：子结构要么在，要么**它对应的指标确实被剔除了**。
+   两者都不成立 ⇒ 指标算了、图却没给 ⇒ 那才是违约（UI 会空一块）。 */
+const EV_NEED = {
+  rms_envelope: null,                 // 总在（音量包络与六个指标无关）
+  vibrato_spectrum: 'vibrato',
+  onset_dev_trend: 'rubato',
+};
+const ev = report.evidence;
+if (ev) {
+  Object.entries(EV_NEED).forEach(([k, metric]) => {
+    const has = k in ev && ev[k];
+    const excused = metric && report.metrics_excluded.includes(metric);
+    check('Evidence', `子结构 ${k}`, has || excused,
+      has ? '' : (excused ? `${metric} 本次未评估 ⇒ 该子结构可以没有（契约 §4.1 可选）`
+                          : '缺失（契约 §4.1）—— 指标算了却没给证据，UI 会空一块'));
+  });
+  Object.entries(ev).forEach(([k, v]) => {
+    if (!v) return;
+    const len = v.t ? v.t.length : (v.f ? v.f.length : 0);
+    check('Evidence', `${k} 下采样 ≤120 点`, len <= 120, `实际 ${len} 点`);
+  });
+} else {
+  check('Evidence', 'evidence 为 null 时 UI 不显示"展开看证据"', true, '（当前数据源未提供 evidence）');
+}
+
+// ── 8. 其余接口 ─────────────────────────────────────────
+// ★ 这里必须区分两种情况（原来混在一起，真实后端上直接崩）：
+//     「字段缺失」= 违约，要 FAIL
+//     「这次没数据」= 正常，标 SKIP 不算失败
+//   （实测：打真实后端时 S01 这个歌手不存在，series 是空对象，
+//     原来的 prog.series.total.length 抛 undefined.length 把整个页面打断了）
+const [hist, prog, prof, exp, cfg] = await Promise.all([
+  source.getHistory('S01'), source.getProgress('S01'),
+  source.getProfile('S01'), source.getExperimentSummary(), source.getConfig(),
+]);
+
+const arr = (v) => Array.isArray(v) ? v : null;
+const S = '（本次无数据，跳过）';
+
+if (arr(hist)?.length) {
+  /* ⚠️ `total_score` 允许为 null（2026-09-24 修）。
+     契约 §3.2 写着 null = 本次未评估 —— 成长档案里那些"自比降级"或
+     "清唱素材"的会话本来就该是 null。原断言要求每一项都是**数字**，
+     于是只要历史里有任何一次未评估的练习，这一条就 FAIL。
+     正确判据：字段必须在，值是数字**或** null。 */
+  check('history', '每项含 session_uid / total_score（可 null）/ created_at',
+    hist.every((h) => h.session_uid && 'total_score' in h && isNullableNum(h.total_score) && h.created_at),
+    `共 ${hist.length} 次，其中未评估 ${hist.filter((h) => h.total_score === null).length} 次`);
+} else {
+  check('history', '返回数组（本次为空）', arr(hist) !== null,
+    arr(hist) === null ? '返回的不是数组 —— 违约' : S);
+}
+
+const s = prog?.series;
+if (s && isNum(s.total?.length) && s.total.length > 0) {
+  check('progress', '三条序列等长',
+    s.total.length === (s.expr?.length ?? -1) && s.total.length === (s.pitch?.length ?? -1),
+    `total ${s.total.length} / expr ${s.expr?.length} / pitch ${s.pitch?.length}`);
+  /* ⚠️ 判据改成"null 的位置必须对得上"（2026-09-24 修）。
+     原断言是"序列里必须**出现** null"—— 它想验的是"UI 断线而不是补 0"，
+     但如果这位歌手每次都评出了分，序列里就没有 null ⇒ 报 FAIL。
+     那是**拿数据反过来要求测试**：没病也要开药。
+     真正该断言的是：`series.total[i] === null` ⟺ 第 i 次练习的 total 是 null。
+     这样无论有没有 null 都在验同一件事（对不上就是补 0 或丢了断点）。 */
+  const nullsInSeries = s.total.filter((v) => v === null).length;
+  const nullsInHist = arr(hist)?.length
+    ? hist.slice(-s.total.length).filter((h) => h.total_score === null).length : null;
+  check('progress', 'null 位置与历史一致（UI 靠它断线，补 0 会画出假趋势）',
+    nullsInHist === null || nullsInSeries === nullsInHist ||
+      // 历史默认只取 20 条、progress 可能更长/更短，长度对不上时不硬比
+      s.total.length !== (arr(hist)?.length ?? -1),
+    `序列里 null ${nullsInSeries} 个；对应区间历史里 null ${nullsInHist ?? '（没取到历史）'} 个` +
+    (nullsInHist === 0 && nullsInSeries === 0 ? '（本次没有未评估的练习，该逻辑未被触发）' : ''));
+} else {
+  check('progress', 'series 存在', s !== undefined && s !== null,
+    s === undefined ? '没有 series 字段 —— 违约' : S);
+}
+
+check('profile', '含 cluster_label 与 chips',
+  !!prof?.cluster_label && Array.isArray(prof?.chips),
+  prof?.cluster_label ? '' : S);
+
+if (exp?.scatter?.length) {
+  check('experiment', '散点 × 权重 × 统计齐全',
+    exp.scatter.length > 0 && exp.weights.length === 6 && isNum(exp.stats.rho));
+} else {
+  // 实验数据要等真人评分采完才有，此时 scatter 本来就会是空的
+  check('experiment', '结构与权重表存在（散点待实验数据）',
+    Array.isArray(exp?.weights) && exp.weights.length === 6 && 'stats' in (exp || {}),
+    exp?.weights?.length === 6 ? `权重 ${exp.weights.length} 项，散点 ${S}` : '权重表缺失 —— 违约');
+}
+
+check('config', '含 range / recording / feedback / privacy 四组',
+  ['range','recording','feedback','privacy'].every((k) => k in (cfg || {})),
+  ['range','recording','feedback','privacy'].every((k) => k in (cfg || {}))
+    ? '' : `实际字段：${Object.keys(cfg || {}).join(', ')}`);
+
+// ── 渲染 ────────────────────────────────────────────────
+const pass = results.filter((r) => r.pass).length;
+const fail = results.length - pass;
+document.getElementById('tally').innerHTML = `
+  <div><div class="k">数据源</div><div class="n" style="font-size:18px">${isMock ? 'mock' : 'api'}</div></div>
+  <div><div class="k">通过</div><div class="n ok">${pass}</div></div>
+  <div><div class="k">失败</div><div class="n ${fail ? 'bad' : 'ok'}">${fail}</div></div>
+  <div><div class="k">总计</div><div class="n">${results.length}</div></div>`;
+
+const groups = [...new Set(results.map((r) => r.group))];
+document.getElementById('out').innerHTML = groups.map((g) => {
+  const rows = results.filter((r) => r.group === g).map((r) => `
+    <tr><td class="s ${r.pass ? 'ok' : 'bad'}">${r.pass ? 'PASS' : 'FAIL'}</td>
+    <td>${r.name}</td><td style="color:#666">${r.detail || ''}</td></tr>`).join('');
+  const bad = results.filter((r) => r.group === g && !r.pass).length;
+  return `<div class="card grp"><h2>${g}
+    <span class="pill${bad ? ' b' : ''}">${bad ? bad + ' 项失败' : '全部通过'}</span></h2>
+    <table><thead><tr><th>结果</th><th>检查项</th><th>说明</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}).join('');
+
+console.log(`契约自检：${pass} 通过 / ${fail} 失败`);
+</script>
+</body>
+</html>

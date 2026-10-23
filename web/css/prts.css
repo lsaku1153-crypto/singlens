@@ -750,17 +750,19 @@ input[type="range"]{accent-color:var(--acc)}
     display:grid;grid-template-columns:minmax(0,1.02fr) minmax(0,.98fr);
     column-gap:34px;align-items:start;
   }
-  .report[data-page="summary"] .summary h3{grid-column:1/-1}
-  .report[data-page="summary"] .summary .total{grid-column:1;grid-row:2}
-  .report[data-page="summary"] .summary .threeline{grid-column:1;grid-row:3}
-  .report[data-page="summary"] .summary .score-note{grid-column:1;grid-row:4}
-  .report[data-page="summary"] .summary .ktvbox{grid-column:1;grid-row:5}
-  .report[data-page="summary"] .summary .deg{grid-column:1/-1;grid-row:6}
+  .report[data-page="summary"] .summary h3{grid-column:1/-1;grid-row:1}
+  .report[data-page="summary"] .summary .deg{grid-column:1/-1;grid-row:2}
+  .report[data-page="summary"] .summary .total{grid-column:1;grid-row:3}
+  .report[data-page="summary"] .summary .threeline{grid-column:1;grid-row:4}
+  .report[data-page="summary"] .summary [data-b="rhythm-basis"]{grid-column:1;grid-row:5}
+  .report[data-page="summary"] .summary .score-note{grid-column:1;grid-row:6}
+  .report[data-page="summary"] .summary .score-note[data-b="rhythm-basis"]{grid-row:5}
+  .report[data-page="summary"] .summary .ktvbox{grid-column:1;grid-row:7}
   .report[data-page="summary"] .summary #radar{
-    grid-column:2;grid-row:2 / span 4;height:370px;margin-top:0;
+    grid-column:2;grid-row:3 / span 5;height:370px;margin-top:0;
   }
-  .report[data-page="summary"] .summary .radar-cap{grid-column:2;grid-row:6;margin-top:4px}
-  .report[data-page="summary"] .summary .danger-row{grid-column:1/-1;grid-row:7}
+  .report[data-page="summary"] .summary .radar-cap{grid-column:2;grid-row:7;margin-top:4px}
+  .report[data-page="summary"] .summary .danger-row{grid-column:1/-1;grid-row:8}
 }
 
 /* 报告分页条：吸顶；左边页码、箭头、页面 tab，右边“切换报告” */

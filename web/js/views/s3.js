@@ -53,6 +53,11 @@ const HTML = `
       <div class="stack">
       <div class="card tick summary rep-on" data-rep-page="summary">
         <h3><span class="t">总评</span><span class="e">Summary</span></h3>
+        <!-- ★ 对齐说明放在分数之前：分数低时，先告诉用户“这份分数能不能信”。 -->
+        <div class="deg" data-b="align-banner" hidden>
+          <span class="dg-h" data-b="align-banner-head">ALIGNMENT DEGRADED</span>
+          <div data-b="align-banner-body"></div>
+        </div>
         <div class="total">
           <div class="v" data-b="total">—</div>
           <div class="d" data-b="total-delta" hidden></div>
@@ -65,6 +70,7 @@ const HTML = `
           <div><div class="k">跟上拍子了吗</div><div class="n mono" data-b="rhythm">—</div></div>
           <div><div class="k">唱得有感情吗</div><div class="n mono" data-b="expr">—</div></div>
         </div>
+        <div class="score-note" data-b="rhythm-basis" hidden></div>
         <!-- ★ 2026-10-20：分数怎么来的，用一句话说清。
              作者实测的最大困惑是「音准 14.5，但教练说整体偏差只有 -1.2 音分」——
              因为音准分是「整遍偏移 + 每个音稳不稳」两半，只报一个数必然像自相矛盾。
@@ -83,25 +89,7 @@ const HTML = `
                否则用户看到「音准 14.5 / 命中 68.9%」只会认为评分坏了。 -->
           <div class="ktv-hint" data-b="ktv-hint"></div>
         </div>
-        <!-- ★ 对齐降级横幅（2026-10-02，待办 B6b）。
-             为什么放在"总评"卡片里、三行分之上：
-             降级时音准/节奏是「本次未评估」，用户第一眼看到的会是"没分数"。
-             必须**在同一个视野内**告诉他为什么 —— 否则他会以为是自己唱得差。
-             ⚠️ CSS 里 .deg 这个样式从 2026-09 就备好了，但**从没被引用过** ——
-                又一个"样式做了、线没接"。这里接上。
-             ⚠️ 写这个注释时踩过：**注释在模板字符串内部**，
-                里面不能出现反引号（会提前截断模板）—— 这条注释本身
-                第一版就带了反引号，直接 SyntaxError。 -->
-        <div class="deg" data-b="align-banner" hidden>
-          <!-- ★ 2026-10-10：标题加了 data-b。
-               原来它是**写死的** "ALIGNMENT DEGRADED"，而那会儿这条横幅
-               只处理"对齐降级"一种情形 —— 标题是对的。
-               现在它要处理三种情形（降级 / 参考对不上 / **只评了一部分**），
-               写死的标题就会**在说错话**：明明只是"参考比你唱得短"，
-               标题却告诉用户"对齐降级了"。-->
-          <span class="dg-h" data-b="align-banner-head">ALIGNMENT DEGRADED</span>
-          <div data-b="align-banner-body"></div>
-        </div>
+        <!-- ★ 对齐说明已上移到 h3 之后：分数低时先看“能不能信”。 -->
         <canvas id="radar"></canvas>
         <div class="radar-cap">Six Dimensions · 归一化 0–1</div>
         <!-- ★ 删掉这一次（2026-10-15，审计发现缺「删单条」）。

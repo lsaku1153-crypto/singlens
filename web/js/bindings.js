@@ -221,6 +221,37 @@ async function s3(root, ctx) {
   //   页面上只有一条红色横幅说明原因（那个机制是上一轮加的，这次正靠它定位）。
   const m = rep.meta || {};
 
+  /* ★ 2026-10-23：旧报告也按同一门槛显示。
+     旧数据已经落库了 18.6；不重跑分析时，UI 仍应遵守“对齐 <70% 不把逐音节奏
+     当结论”的规则。只影响显示，不改数据库；新报告由服务端直接输出 null。 */
+  try {
+    const al0 = (rep.meta && rep.meta.align) || {};
+    const ew0 = (rep.meta && rep.meta.eval_window) || {};
+    const ratio0 = typeof al0.align_ratio === 'number' ? al0.align_ratio : null;
+    const low0 = ratio0 !== null && ratio0 < 0.70
+      && !(rep.meta && rep.meta.self_reference)
+      && !(rep.rhythm && rep.rhythm.basis === 'phrase');
+    if (low0) {
+      const why0 = `对齐率仅 ${(ratio0 * 100).toFixed(1)}%`
+        + (al0.aligned && al0.total ? `（${al0.aligned}/${al0.total}）` : '')
+        + '，本次节奏与总分不计算';
+      if (rep.rhythm) {
+        rep.rhythm.score = null;
+        rep.rhythm.accuracy = null;
+        rep.rhythm.stability = null;
+        rep.rhythm.rubato = null;
+        rep.rhythm.reason = why0;
+      }
+      if (rep.ktv) {
+        rep.ktv.score = null;
+        rep.ktv.rhythm_score = null;
+        rep.ktv.rhythm_hit_rate = null;
+      }
+      rep.total = null;
+      rep.meta.eval_window = Object.assign({}, ew0, { rhythm_unassessed: why0 });
+    }
+  } catch { /* 显示层兜底，不阻断报告 */ }
+
   // ★ 对齐降级横幅（2026-10-02，B6b）。**放在这里**，而不是混在下面
   //   `if (meta)` 那一大块里 —— 那一块改的是"标题行文字"，
   //   而这条横幅是"整个报告可信度"的说明，两者触发条件也不同。
@@ -383,13 +414,18 @@ async function s3(root, ctx) {
   }
   const tbEl = root.querySelector('[data-b="total-basis"]');
   if (tbEl) {
-    const isKtv = (rep.meta || {}).total_basis === 'ktv';
+    const basis = (rep.meta || {}).total_basis;
+    const isKtv = basis === 'ktv';
+    const isPhrase = basis === 'ktv_phrase';
     const strict = (rep.meta || {}).total_strict;
-    tbEl.hidden = !isKtv;
-    tbEl.textContent = isKtv
-      ? `整首跟唱 · 按 KTV 容差带计分${typeof strict === 'number'
+    tbEl.hidden = !(isKtv || isPhrase);
+    tbEl.textContent = isPhrase
+      ? `整首跟唱 · 音准按 KTV，节奏按句级${typeof strict === 'number'
         ? `（严格加权 ${show(strict)}）` : ''}`
-      : '';
+      : isKtv
+        ? `整首跟唱 · 按 KTV 容差带计分${typeof strict === 'number'
+          ? `（严格加权 ${show(strict)}）` : ''}`
+        : '';
   }
   /* KTV 式并列参考分（2026-10-18）：有就显示，没有就收起。
      ★ 2026-10-21：总分/卡片都改走 KTV 容差带；命中率只用来解释，
@@ -444,6 +480,72 @@ async function s3(root, ctx) {
   setText(root, 'rhythm', show(rep.rhythm.score));
   setText(root, 'expr', show(rep.expressiveness.score));
 
+  /* ★ 2026-10-24：节奏现在是**句级**时，明确标出来。
+     逐音对齐率低不代表句级不可用；反过来，用户也不该把 18.6 的逐音分
+     当成句级结论。这里只解释口径，不改分。 */
+  const rb = root.querySelector('[data-b="rhythm-basis"]');
+  if (rb) {
+    const ph = rep.rhythm.phrase
+      || ((rep.meta || {}).phrase_rhythm) || null;
+    const beat = rep.beat_diagnostic
+      || ((rep.meta || {}).beat_diagnostic) || null;
+    const isPhrase = rep.rhythm.basis === 'phrase' && ph
+      && typeof ph.score === 'number';
+    const hasBeat = beat && typeof beat.hit_rate === 'number';
+    rb.hidden = !(isPhrase || hasBeat);
+    let html = '';
+    if (isPhrase) {
+      const n = ph.phrase_count || 0;
+      const ratio = ((rep.meta || {}).align || {}).align_ratio;
+      const pct = typeof ratio === 'number' ? Math.round(ratio * 100) : null;
+      html = `节奏按 <b>${n} 句</b>估算：句首偏移 + 句长比例 + 句内残差。`
+        + (pct !== null && pct < 70
+          ? `逐音对齐只有 ${pct}%，只用于定位，不再当节奏结论。`
+          : '');
+      const rows = Array.isArray(ph.phrases) ? ph.phrases.slice() : [];
+      rows.sort((a, b) => (a.score || 0) - (b.score || 0));
+      const w = rows[0];
+      if (w) {
+        const no = (typeof w.line_index === 'number') ? w.line_index + 1 : '?';
+        const txt = String(w.text || '').slice(0, 12);
+        const bits = [];
+        if (typeof w.start_dev_ms === 'number' && Math.abs(w.start_dev_ms) >= 150) {
+          bits.push(`句首${w.start_dev_ms > 0 ? '晚' : '早'} `
+            + `${(Math.abs(w.start_dev_ms) / 1000).toFixed(2)}s`);
+        }
+        if (typeof w.duration_ratio === 'number'
+            && Math.abs(w.duration_ratio - 1) >= 0.06) {
+          bits.push(`句长${w.duration_ratio > 1 ? '拖' : '赶'} `
+            + `${Math.round(Math.abs(w.duration_ratio - 1) * 100)}%`);
+        }
+        if (bits.length) {
+          html += `<br>最弱：第 <b>${no}</b> 句`
+            + (txt ? `「${esc(txt)}」` : '') + ` ${bits.join('、')}。`;
+        }
+      }
+    }
+    if (hasBeat) {
+      const phase = Number(beat.phase_ms) || 0;
+      const phaseTxt = Math.abs(phase) >= 1000
+        ? `${(Math.abs(phase) / 1000).toFixed(1)}s`
+        : `${Math.round(Math.abs(phase))}ms`;
+      const tol = Math.round(beat.tolerance_ms || 120);
+      let line = `节拍诊断（不计分）：扣掉整体偏移后踩中 `
+        + `<b>${Number(beat.hit_rate).toFixed(0)}%</b>（±${tol}ms），`
+        + `平均${phase >= 0 ? '晚' : '早'} ${phaseTxt}`;
+      const bars = Array.isArray(beat.worst_bars) ? beat.worst_bars : [];
+      if (bars.length && typeof bars[0].start_ms === 'number') {
+        const s = Math.max(0, Math.round(bars[0].start_ms / 1000));
+        const mm = String(Math.floor(s / 60)).padStart(2, '0');
+        const ss = String(s % 60).padStart(2, '0');
+        line += `；最不稳 ${mm}:${ss}`
+          + `（${bars[0].hit_beats || 0}/${bars[0].active_beats || 0} 拍）`;
+      }
+      html += (html ? '<br>' : '') + line + '。';
+    }
+    rb.innerHTML = html;
+  }
+
   /* ★ 2026-10-20：把「分数低扣在哪一半」写在分数下面。
      作者实测：「音准 14.5，但教练说整体偏差只有 -1.2」——
      这两句都对，可用户读起来就是自相矛盾。
@@ -468,7 +570,8 @@ async function s3(root, ctx) {
     }
     const rs = rep.rhythm.score;
     const rst = rep.rhythm.stability;
-    if (typeof rs === 'number' && typeof rst === 'number' && rst > 120) {
+    if (rep.rhythm.basis !== 'phrase'
+        && typeof rs === 'number' && typeof rst === 'number' && rst > 120) {
       parts.push(`节奏分主要扣在「每个音前后不稳」：残差抖动约 `
         + `<b>${rst.toFixed(0)} 毫秒</b>，不是整遍快慢。`);
     }
@@ -955,8 +1058,18 @@ function renderAlignBanner(root, rep) {
   const lowCoverage = !degraded && !contentMismatch
     && !(meta && meta.self_reference)
     && coverage !== null && coverage < 0.6;
+  /* ★ 2026-10-23：**对齐率低**也要说出来。
+     实测整首歌 506 个用户音符只对上 312 个（61.7%）时，系统仍会算出一个
+     18.6 的节奏分 —— 但那个分数只代表“能对上的 312 个音”，
+     不是“整遍唱得差”。项目自己的注释也写着：正确情形实测最低 0.78，
+     0.6 只是“结构上还能跑”的下限，不是“可以拿来做结论”的置信度。
+     ⇒ 低于 0.70 时显示 LOW ALIGNMENT，不偷偷把低分当成演唱水平。 */
+  const lowAlign = !degraded && !contentMismatch && !lowCoverage
+    && !(meta && meta.self_reference)
+    && !(rep && rep.rhythm && rep.rhythm.basis === 'phrase')
+    && ratio !== null && ratio < 0.70;
 
-  if (!degraded && !contentMismatch && !lowCoverage) {
+  if (!degraded && !contentMismatch && !lowCoverage && !lowAlign) {
     box.hidden = true;
     body.replaceChildren();
     setHead('ALIGNMENT DEGRADED');   // 复位，免得下次显示时留着上一次的标题
@@ -1006,6 +1119,43 @@ function renderAlignBanner(root, rep) {
       + `覆盖 ${pct}%（低于 60% 才提示）`;
     wrap.appendChild(raw);
     setHead('PARTIAL EVALUATION');
+    body.replaceChildren(wrap);
+    box.hidden = false;
+    return;
+  }
+
+  if (lowAlign) {
+    const pct = Math.round(ratio * 100);
+    const matched = (typeof al.aligned === 'number') ? al.aligned : null;
+    const total = notesTotal || al.total || null;
+    const off = (al.onset_dev && typeof al.onset_dev.median === 'number')
+      ? Math.round(al.onset_dev.median) : null;
+    const tempo = (rep.rhythm && typeof rep.rhythm.tempo_ratio === 'number')
+      ? rep.rhythm.tempo_ratio : null;
+    line1.innerHTML = `这次只有 <b>${pct}%</b> 的音符能对上参考`
+      + (matched && total ? `（${matched}/${total}）` : '')
+      + `，<b>本次节奏不计分</b>。`;
+    const line2 = document.createElement('div');
+    line2.style.marginTop = '8px';
+    line2.textContent = '能对上的音太少，逐音节奏就不成立；系统没有把这类低分'
+      + '当成你的演唱水平。通常说明你的切分和参考版本不完全一致'
+      + '（唱法、装饰音、参考本身有差异），也可能只是这一遍的收音/起唱没有对齐。';
+    const line3 = document.createElement('div');
+    line3.style.marginTop = '8px';
+    line3.innerHTML = '建议先<b>戴耳机、只练一小段</b>，或者换一首内置短参考再测；'
+      + '整首歌的逐音节奏，系统目前还给不出高置信度的结论。';
+    const raw = document.createElement('div');
+    raw.style.marginTop = '8px';
+    raw.style.fontSize = '11px';
+    raw.style.opacity = '.75';
+    raw.textContent = (off !== null ? `起唱偏移 ${off}ms · ` : '')
+      + (tempo !== null ? `速度 ${tempo.toFixed(3)}× · ` : '')
+      + `对齐 ${matched || '—'}/${total || '—'}（${pct}%）`;
+    wrap.appendChild(line1);
+    wrap.appendChild(line2);
+    wrap.appendChild(line3);
+    wrap.appendChild(raw);
+    setHead('LOW ALIGNMENT CONFIDENCE');
     body.replaceChildren(wrap);
     box.hidden = false;
     return;
@@ -3909,6 +4059,7 @@ async function s2(root, ctx) {
           不假装有伴奏：用户自己的原始录音不会被播放，放的是合成旋律。 */
     const cue = root.querySelector('[data-b="lv-cue"]');
     let guideAudio = null;
+    let startGuide = null;
     const canVocal = !!(sess && sess.reference && sess.reference.has_vocal);
     const canOriginal = canVocal;   // 有原唱就能混出「原唱+伴奏」；没伴奏时退化为原唱
     const hasBacking = !!(sess && sess.reference && sess.reference.has_backing);
@@ -3924,6 +4075,14 @@ async function s2(root, ctx) {
       (sess.mode === 'B' && sess.template_id)
     );
     live.guideLeadMs = wantsGuide ? 2000 : 0;
+    // ★ 2026-10-23：参考音高也整体后移 2 秒，和引导音轨的 4 拍预备对齐。
+    //   之前只把 2 秒加进“总时长”，阶梯图/服务端 current_note 仍从 0 秒开始，
+    //   于是屏幕上的参考比耳朵听到的伴奏早 2 秒 —— 用户会以为是自己跟不上。
+    if (live.guideLeadMs && live.refNotes.length) {
+      live.refNotes = live.refNotes.map(([s, e, m]) => [
+        s + live.guideLeadMs, e + live.guideLeadMs, m,
+      ]);
+    }
     if (cue) cue.hidden = !wantsGuide;
     if (wantsGuide) {
       const tr = Number(sess.transpose) || 0;
@@ -3977,12 +4136,22 @@ async function s2(root, ctx) {
             + '但没法和它的调对齐，音准分会受影响。';
         }
       });
-      guideAudio.play().catch((e) => {
-        if (tEl) {
-          tEl.textContent = `伴奏放不出来（${e.message}）—— `
-            + '点下面的按钮重试，或直接清唱。';
-        }
-      });
+      // ★ 2026-10-23：**不要在这里 play()**。
+      //   实测：伴奏先播，随后才 await getUserMedia/openMic/stream.start；
+      //   等麦克风真正开始收块时，2 秒预备已经走掉一截，服务端的时间轴
+      //   从“第一块音频”起算，于是整遍被记成晚开口 1.0–1.2 秒。
+      //   现在把播放推迟到 mic/WS 都 ready（见下方 startGuide?.()），
+      //   让 4 拍预备、用户开口、服务端 t=0 从同一刻开始。
+      startGuide = () => {
+        if (!guideAudio) return;
+        guideAudio.play().catch((e) => {
+          if (tEl) {
+            tEl.textContent = `伴奏放不出来（${e.message}）—— `
+              + '点下面的按钮重试，或直接清唱。';
+          }
+        });
+      };
+      if (tEl) tEl.textContent = '麦克风准备好后，先听 4 下节拍再开口';
       const again = root.querySelector('[data-b="lv-guide-again"]');
       if (again) {
         /* ★ 2026-10-18：原来只是 `currentTime=0; play()` —— 录音还在继续，
@@ -4177,6 +4346,9 @@ async function s2(root, ctx) {
     await mic.start();
     stream.start();
     live.running = true;
+    // ★ 麦克风与 WebSocket 都就绪后，才播 4 拍预备。
+    //   这样“用户听到的第 5 拍”和服务端 t=0 是同一个起点。
+    if (startGuide) startGuide();
     // ★ 麦真的开起来了，才切 live。之前是在开麦**之前**就切：
     //   权限被拒时用户看到的是"正在录"，而 setup 已经没了。
     enterLive(sess);
@@ -4188,9 +4360,9 @@ async function s2(root, ctx) {
   const startClocks = () => {
     const refMs = live.refNotes.length
       ? live.refNotes[live.refNotes.length - 1][1] : 0;
-    // 引导音前奏（4 拍 = 2s）也在录音里，必须算进总长；
-    // 否则现场唱出来的时间是 06.1 / 03.5（分母只有参考，不含前奏）。
-    const totalMs = refMs ? refMs + (live.guideLeadMs || 0) : 0;
+    // 引用音高已经整体包含 4 拍预备（见 beginCapture 里的 guideLeadMs 偏移），
+    // 所以这里**不要再加一次**，否则进度条分母会多 2 秒。
+    const totalMs = refMs || 0;
     const tick = () => {
       if (!live.running) return;
       setText(root, 'lv-time', totalMs

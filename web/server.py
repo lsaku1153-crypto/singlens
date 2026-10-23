@@ -99,6 +99,8 @@ from analysis.scoring import (  # noqa: E402
 #   单独一个模块而不是塞进 server.py —— 它是**教学规则**，不是服务逻辑，
 #   而且规则要能脱开 HTTP 单独测（见 experiments/_verify_practice_plan.py）。
 from analysis import practice_plan  # noqa: E402
+from analysis.phrase_rhythm import score_phrases  # noqa: E402
+from analysis.beat_diagnostic import beat_grid_from_audio, diagnose_beats  # noqa: E402
 
 
 # ══════════════════════════════════════════════════════════════
@@ -615,7 +617,21 @@ def _align_window(notes, ref, f0b, sr):
     """
     n_ref = len(ref.notes)
     extra = {"notes_total": len(notes), "phrase_window": False}
-    if n_ref == 0 or len(notes) <= n_ref:
+    # ★ 2026-10-23：**先看时长，再看音符数**。
+    #   之前只要“用户音符比参考多”就进窗口搜索；实测一首 4:17 的整歌
+    #   （447 个用户音符）对 4:21 的整歌模板（355 个参考音符）时，
+    #   搜索把用户第 86 个音（75.2s）起的 355 个音当窗口，
+    #   硬对到参考第 0 个音（21.1s）—— `onset_dev` 开头变成 54s，
+    #   后续拟合出 7s 的假 rubato，整份报告的节奏分失真。
+    #   参考与演唱的**跨度**都接近整首歌时，就应该整段对齐；
+    #   窗口只用于“参考是一句、用户唱了多遍/多句”的场景。
+    ref_span = (ref.notes[-1].end_ms - ref.notes[0].start_ms
+                if len(ref.notes) >= 2 else 0)
+    user_span = (notes[-1].end_ms - notes[0].start_ms
+                 if len(notes) >= 2 else 0)
+    full_song = (ref_span >= 60_000 and user_span >= ref_span * 0.8
+                 and user_span <= ref_span * 1.25)
+    if n_ref == 0 or len(notes) <= n_ref or full_song:
         a, i = align_to_reference(notes, ref, f0=f0b, sr=sr)
         # ★ 这条提前返回也必须带 pitch_offset。
         #   踩过的坑：只有"选窗口"那条分支传了它，于是**刚好一句、不用挑窗口**的
@@ -623,6 +639,7 @@ def _align_window(notes, ref, f0b, sr):
         #   用户降调唱了也得不到"你比参考低了 3 个半音，换个调跟"的提示。
         extra["pitch_offset_semitones"] = i.get("pitch_offset_semitones")
         extra["notes_used"] = len(notes)
+        extra["full_song"] = bool(full_song)
         return a, i, notes, extra
 
     cands = []
@@ -688,6 +705,10 @@ HTTP_CODES = {
 ALL_ERROR_CODES = ERROR_CODES + tuple(HTTP_CODES)
 
 SR = 22050
+# 引导音轨开头的 4 拍预备（2 秒）。实时时间轴从第一块音频开始，
+# 而参考音符号表从歌曲 0 秒开始；实时参考必须整体后移这 2 秒，
+# 否则屏幕上的“该唱这个音”会比耳朵听到的早 2 秒。
+GUIDE_LEAD_MS = 2000
 RT_WINDOW_MS = 5000          # 契约：实时滚动窗口统一 5 秒
 RT_PITCH_HZ = 20             # 契约：pitch 帧 ~20Hz
 RT_METRICS_HZ = 1            # 契约：metrics 帧 1Hz
@@ -1742,6 +1763,7 @@ def run_precise(sess: Session):
         t0 = time.perf_counter()
         window_extra = {}
         self_reference = False
+        phrase_lyrics = []
         if sess.mode == "A" and sess.reference_id:
             ref = _transpose_ref(load_builtin(sess.reference_id), sess.transpose)
             # ★ 参考只有"一句"，而用户可能唱了多句/多遍 ——
@@ -1758,6 +1780,7 @@ def run_precise(sess: Session):
                               "message": f"跟唱模板 {sess.template_id} 不见了，请重录模板。"}
                 return
             ref = _transpose_ref(templates.to_reference_melody(tpl), sess.transpose)
+            phrase_lyrics = list(tpl.lyrics or [])
             sess.template_quality = tpl.quality or None
             # 模板时长可能比本次演唱短（用户第二遍多唱了）→ 同样只评覆盖段
             aligned, align_info, notes_used, window_extra = _align_window(
@@ -1841,9 +1864,66 @@ def run_precise(sess: Session):
 
         # ★ 2026-10-20：整首跟唱用 **KTV 命中率** 作总评口径（见报告 meta）。
         _is_song = False
+        _song_tpl = None
         if sess.template_id:
-            _t = templates.load(sess.template_id)
-            _is_song = bool(_t and (_t.source_kind or "") == "song_vocal")
+            _song_tpl = templates.load(sess.template_id)
+            _is_song = bool(_song_tpl and (_song_tpl.source_kind or "") == "song_vocal")
+
+        # ★ 2026-10-24：歌曲参考再加一层**句级节奏**。
+        #   逐音对齐在整首歌上会被切分错误放大（实测 506 个用户音只对上 312 个），
+        #   句级只看每句的进唱、句长和句内残差，更接近用户听到的“跟上拍子”。
+        #   句级结果可靠时用它当节奏主分；不可靠时仍走下面的逐音门槛。
+        _phrase_rhythm = None
+        if _is_song and not self_reference:
+            try:
+                _phrase_rhythm = score_phrases(
+                    aligned, ref,
+                    lyrics=(phrase_lyrics or (getattr(ref, "lyric_lines", None) or [])))
+            except Exception as _e:  # noqa: BLE001
+                print(f"[SingLens] ⚠️ 句级节奏计算失败：{_e}")
+                _phrase_rhythm = None
+            if _phrase_rhythm:
+                if (_phrase_rhythm.get("phrase_count", 0) < 5
+                        or _phrase_rhythm.get("phrase_coverage", 0) < 0.5
+                        or _phrase_rhythm.get("note_coverage", 0) < 0.5):
+                    _phrase_rhythm = None
+        if _phrase_rhythm:
+            window_extra["phrase_rhythm"] = {
+                "method": "phrase",
+                "score": _phrase_rhythm.get("score"),
+                "phrase_count": _phrase_rhythm.get("phrase_count"),
+                "phrase_total": _phrase_rhythm.get("phrase_total"),
+                "phrase_coverage": _phrase_rhythm.get("phrase_coverage"),
+                "note_coverage": _phrase_rhythm.get("note_coverage"),
+                "global_tempo": _phrase_rhythm.get("global_tempo"),
+                "global_offset_ms": _phrase_rhythm.get("global_offset_ms"),
+            }
+
+        # ★ 2026-10-24：节拍级只做**诊断**，暂不参与总分。
+        #   拍点从模板的 backing 伴奏上取；参考音符是原始歌曲时间轴，
+        #   而 beat grid / 用户录音都含 2 秒预备 ⇒ ref 要加 GUIDE_LEAD_MS。
+        _beat = None
+        if (_is_song and not self_reference and _song_tpl
+                and getattr(_song_tpl, "backing_path", None)):
+            try:
+                _bg = beat_grid_from_audio(
+                    _song_tpl.backing_path, offset_ms=GUIDE_LEAD_MS)
+                if _bg:
+                    _beat = diagnose_beats(
+                        notes, ref.notes, _bg["beats"],
+                        ref_offset_ms=GUIDE_LEAD_MS)
+                    if _beat:
+                        _beat["tempo_bpm"] = _bg.get("tempo_bpm")
+                        scores["beat"] = _beat
+                        window_extra["beat_diagnostic"] = {
+                            k: _beat.get(k) for k in (
+                                "hit_rate", "raw_hit_rate", "phase_ms",
+                                "stability_ms", "active_beats", "hit_beats",
+                                "tolerance_ms", "tempo_bpm", "worst_bars")
+                        }
+            except Exception as _e:  # noqa: BLE001
+                print(f"[SingLens] ⚠️ 节拍诊断失败：{_e}")
+
         _total_basis = "weighted"
         _total_strict = scores.get("total")
         if _is_song and not self_reference:
@@ -1864,9 +1944,54 @@ def run_precise(sess: Session):
                     scores["rhythm"]["basis"] = "ktv"
                 _total_basis = "ktv"
 
+        # 句级节奏可靠时，接管“节奏”主分；音准仍用 KTV 口径。
+        # 总分用同一口径：0.7 音准 + 0.3 句级节奏。
+        if _phrase_rhythm and _phrase_rhythm.get("score") is not None:
+            _rhythm_score = float(_phrase_rhythm["score"])
+            # 保留逐音的对齐统计，但把卡片上的 accuracy/stability 换成句级口径，
+            # 否则会出现“节奏 64 分，旁边写着每音抖 285ms”的前后矛盾。
+            scores["rhythm"]["note_accuracy"] = scores["rhythm"].get("accuracy")
+            scores["rhythm"]["note_stability"] = scores["rhythm"].get("stability")
+            scores["rhythm"]["score"] = _rhythm_score
+            scores["rhythm"]["accuracy"] = _phrase_rhythm.get("mean_abs_start_dev_ms")
+            scores["rhythm"]["stability"] = _phrase_rhythm.get("mean_residual_ms")
+            scores["rhythm"]["basis"] = "phrase"
+            scores["rhythm"]["phrase"] = _phrase_rhythm
+            _pitch_score = (scores.get("pitch") or {}).get("score")
+            if _pitch_score is not None:
+                scores["total"] = round(
+                    0.7 * float(_pitch_score) + 0.3 * _rhythm_score, 1)
+            # 逐音 KTV 总分和句级总分不是一个口径，不能同时挂在“总评”上。
+            # 保留 pitch/rhythm 明细供拆解，隐藏 KTV 总分卡。
+            _kk = scores.get("ktv") or {}
+            _kk["score"] = None
+            _kk["rhythm_score"] = None
+            _kk["rhythm_hit_rate"] = None
+            _total_basis = "ktv_phrase"
+
+        # ★ 2026-10-23：**逐音对齐率太低时，不把逐音节奏当结论。**
+        #   如果句级节奏已经可靠，就走句级；只有句级也拿不到时才清空。
+        _low_align = (not self_reference and ast.get("align_ratio") is not None
+                      and ast["align_ratio"] < 0.70)
+        if _low_align and not _phrase_rhythm:
+            _pct = ast["align_ratio"] * 100
+            _why = (f"对齐率仅 {_pct:.1f}%（{ast.get('aligned')}/{ast.get('total')}），"
+                    f"能对上的音符太少，本次节奏与总分不计算")
+            scores["rhythm"]["score"] = None
+            scores["rhythm"]["accuracy"] = None
+            scores["rhythm"]["stability"] = None
+            scores["rhythm"]["rubato"] = None
+            scores["rhythm"]["reason"] = _why
+            _kk = scores.get("ktv") or {}
+            _kk["score"] = None
+            _kk["rhythm_score"] = None
+            _kk["rhythm_hit_rate"] = None
+            scores["total"] = None
+            window_extra["rhythm_unassessed"] = _why
+            _total_basis = "unassessed"
+
         gaps = audit_gaps(notes, y, sess.sr)
         bad = [g for g in gaps if g["is_problem"]]
-
         sess.report = build_report(sess, notes, aligned, scores, feats, ast, {
             "pitch_ms": int(t_pitch * 1000), "segment_ms": int(t_seg * 1000),
             "align_ms": int(t_align * 1000), "features_ms": int(t_feat * 1000),
@@ -2056,6 +2181,8 @@ def build_report(sess, notes, aligned, scores, feats, ast, perf, y=None) -> dict
         "pitch": {"score": r1(scores["pitch"]["score"]),
                   "accuracy": r1(scores["pitch"]["accuracy"]),
                   "stability": r1(scores["pitch"]["stability"])},        "rhythm": {"score": r1(scores["rhythm"]["score"]),
+                   "basis": scores["rhythm"].get("basis"),
+                   "phrase": scores["rhythm"].get("phrase"),
                    "accuracy": r1(scores["rhythm"]["accuracy"]),
                    "stability": r1(scores["rhythm"]["stability"]),
                    "rubato": r1(scores["rhythm"]["rubato"]),
@@ -2106,6 +2233,8 @@ def build_report(sess, notes, aligned, scores, feats, ast, perf, y=None) -> dict
         # ★ KTV 式并列参考分（2026-10-18）：八度折叠 + 命中率 + 时长加权。
         #   不替换六指标 C，只多给一个对离群点不敏感的口径。
         "ktv": scores.get("ktv"),
+        # ★ 2026-10-24：节拍级诊断（scored=false，不参与 total）。
+        "beat_diagnostic": scores.get("beat"),
         "weight_version": scores["weight_version"],
         "metrics_excluded": scores["excluded"],
         "segments": segments,
@@ -2171,6 +2300,9 @@ def build_report(sess, notes, aligned, scores, feats, ast, perf, y=None) -> dict
             "reference_has_lyrics": bool(_ref_tpl.lyrics) if _ref_is_song else False,
             # 整首跟唱的总评口径：weighted（A/B 的加权总分）或 ktv（跟唱命中）
             "total_basis": (perf.get("total_basis") or "weighted"),
+            "rhythm_basis": scores["rhythm"].get("basis"),
+            "phrase_rhythm": (perf.get("eval_window") or {}).get("phrase_rhythm"),
+            "beat_diagnostic": (perf.get("eval_window") or {}).get("beat_diagnostic"),
             "total_strict": perf.get("total_strict"),
             "problems_outliers_removed": _outliers_removed,
             # ★ 2026-10-18：这次参考整体移调了多少半音（0 = 原调）。
@@ -2972,10 +3104,14 @@ async def create_session(req: Request):
                    transpose=transpose)
     if mode == "A":
         ref = _transpose_ref(load_builtin(ref_id), transpose)
-        sess.rt.ref_notes = [(n.start_ms, n.end_ms, n.pitch_midi) for n in ref.notes]
+        sess.rt.ref_notes = [(n.start_ms + GUIDE_LEAD_MS,
+                              n.end_ms + GUIDE_LEAD_MS, n.pitch_midi)
+                             for n in ref.notes]
     elif tpl_for_session is not None:
         # 模板有音符序列 → 实时管线也能显示参考音高（与模式 A 同等体验）
-        sess.rt.ref_notes = [(n["start_ms"], n["end_ms"],
+        # ★ 2026-10-23：同样要加 2 秒引导；否则实时参考早于耳朵听到的伴奏。
+        sess.rt.ref_notes = [(n["start_ms"] + GUIDE_LEAD_MS,
+                              n["end_ms"] + GUIDE_LEAD_MS,
                               float(n["pitch_midi"]) + transpose)
                              for n in tpl_for_session.notes
                              if n.get("pitch_midi") is not None]

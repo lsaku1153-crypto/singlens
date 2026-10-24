@@ -539,10 +539,11 @@ def chat(rep: dict, question: str, history: list | None = None,
             ["我想更贴原唱，先改哪里？", "我想唱出自己的感觉，怎么加才不油？",
              "第 3 句具体怎么处理？"]
             if ctx.get("scope") == "general" else
-            ([f"第 {ctx['phrase']['line_no']} 句怎么唱？",
-              "其它地方怎么样？", "用哪种唱法更好？"]
+            (["这句只练进唱怎么练？", "下一句怎么样？", "用哪种唱法更好？"]
              if ctx.get("phrase") else
-             ["哪里最需要改？", "节奏哪里最不稳？", "用哪种唱法更好？"])
+             (["这几小节怎么练？", "其它地方怎么样？", "用哪种唱法更好？"]
+              if ctx.get("beat") else
+              ["哪里最需要改？", "节奏哪里最不稳？", "用哪种唱法更好？"]))
         ),
     })
     if not ctx["overview"].get("self_reference"):

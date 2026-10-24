@@ -2141,11 +2141,28 @@ function initCoachChat(root, rep, uid, pager, source) {
         if (ev.childNodes.length) box.appendChild(ev);
       }
       if (Array.isArray(m.suggestions) && m.suggestions.length) {
+        const adv = document.createElement('div');
+        adv.className = 'ask-advice';
+        const h = document.createElement('b');
+        h.textContent = '可以试：';
+        adv.appendChild(h);
+        m.suggestions.forEach((text) => {
+          const li = document.createElement('div');
+          li.textContent = text;
+          adv.appendChild(li);
+        });
+        box.appendChild(adv);
+      }
+      if (Array.isArray(m.followups) && m.followups.length) {
         const acts = document.createElement('div');
         acts.className = 'ask-actions';
-        m.suggestions.forEach((text) => {
+        const h = document.createElement('span');
+        h.className = 'ask-follow-label';
+        h.textContent = '继续问：';
+        acts.appendChild(h);
+        m.followups.slice(0, 3).forEach((text) => {
           const b = document.createElement('button');
-          b.className = 'btn';
+          b.className = 'ask-chip';
           b.type = 'button';
           b.textContent = text;
           b.onclick = () => ask(text);
@@ -2216,6 +2233,7 @@ function initCoachChat(root, rep, uid, pager, source) {
         content: String(r.answer || '这次没有拿到回答。'),
         evidence: Array.isArray(r.evidence) ? r.evidence : [],
         suggestions: Array.isArray(r.suggestions) ? r.suggestions.slice(0, 3) : [],
+        followups: Array.isArray(r.followups) ? r.followups.slice(0, 3) : [],
         practice: r.practice || null,
         mode: r.mode || '',
         scope: r.scope || 'report',

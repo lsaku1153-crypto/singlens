@@ -1507,6 +1507,13 @@ body[data-screen="s1"] .rail .sq{background:var(--acc)}
   background:rgba(255,255,255,.4)}
 .ask-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
 .ask-actions .btn{font-size:11px;padding:6px 12px}
+.ask-follow-label{align-self:center;font:10px/1.4 "Plex Mono","Noto Sans SC",monospace;
+  color:var(--ink4);margin-right:2px}
+.ask-advice{margin-top:10px;border-left:2px solid var(--line2);
+  padding:2px 0 2px 10px;font-size:12px;line-height:1.65;color:var(--ink2)}
+.ask-advice b{display:block;font:600 9px/1.4 "Plex Mono","Noto Sans SC",monospace;
+  letter-spacing:.1em;color:var(--ink3);margin-bottom:3px}
+.ask-advice div{margin-top:3px}
 .ask-mode{font-size:10px;color:var(--ink4);margin-top:7px}
 .ask-suggest{display:flex;flex-wrap:wrap;gap:7px;margin:16px 0 10px}
 .ask-chip{border:1px solid var(--line2);background:transparent;color:var(--ink2);

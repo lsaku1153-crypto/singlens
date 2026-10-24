@@ -256,6 +256,16 @@ export class ApiSource extends DataSource {
     return req('GET', `/session/${uid}/report?singer_id=${encodeURIComponent(getSingerId())}`);
   }
 
+  /** P0 追问教练：只把报告/问题发给后端，不上传录音。 */
+  coachChat(uid, message, history = [], focus = null) {
+    return req('POST', `/session/${uid}/coach/chat`, {
+      singer_id: getSingerId(),
+      message,
+      history: (history || []).slice(-6),
+      focus: focus || null,
+    });
+  }
+
   /**
    * 后端返回 {base, current, delta}；UI 契约要 {base, retry, delta}。
    * 语义相同（current 就是这次复练），只是命名不同。

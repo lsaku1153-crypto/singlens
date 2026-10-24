@@ -101,6 +101,7 @@ from analysis.scoring import (  # noqa: E402
 from analysis import practice_plan  # noqa: E402
 from analysis.phrase_rhythm import score_phrases  # noqa: E402
 from analysis.beat_diagnostic import beat_grid_from_audio, diagnose_beats  # noqa: E402
+from analysis import coach_agent  # noqa: E402
 
 
 # ══════════════════════════════════════════════════════════════
@@ -3618,6 +3619,55 @@ async def report(uid: str, singer_id: str = ""):
     sess.report = _ensure_plan_matches_scores(sess.report)
     sess.report = _ensure_practice_context(sess.report)
     return ok(_live_audio_meta(uid, sess.report))
+
+
+@app.post("/api/session/{uid}/coach/chat")
+async def coach_chat_endpoint(uid: str, req: Request):
+    """P0 追问教练：只基于这一份报告回答，不重新分析、不改分。
+
+    请求：{message, singer_id, history:[{role,content}], focus:{line_no}}
+    返回：{answer, evidence, suggestions, practice, mode, ...}
+    """
+    body = await _json(req)
+    if not isinstance(body, dict):
+        return fail("BAD_REQUEST", "请求体必须是对象。")
+    singer_id = str(body.get("singer_id") or "").strip()
+    message = str(body.get("message") or "").strip()
+    if not message:
+        return fail("BAD_REQUEST", "问点什么再发送。")
+    if len(message) > 400:
+        message = message[:400]
+    _assert_session_owner(uid, singer_id or None)
+    rep = None
+    sess = SESSIONS.get(uid)
+    if sess is not None and sess.report is not None:
+        rep = sess.report
+    else:
+        try:
+            from web import practice_store
+            rep = practice_store.load_report(uid)
+        except Exception as e:  # noqa: BLE001
+            print(f"[SingLens] ⚠️ 追问读报告失败（{uid}）：{e}")
+            rep = None
+    if not rep:
+        return fail("NOT_FOUND", "这条练习还没有可追问的报告。", 404)
+    # 与 /report 同口径补旧报告；句级/节拍缺失时 agent 会明确说“没测到”。
+    try:
+        rep = _ensure_ktv(rep)
+        rep = _ensure_practice_context(rep)
+    except Exception:  # noqa: BLE001
+        pass
+    history = body.get("history")
+    focus = body.get("focus")
+    try:
+        out = await asyncio.to_thread(
+            coach_agent.chat, rep, message,
+            history if isinstance(history, list) else [],
+            focus if isinstance(focus, dict) else None)
+    except Exception as e:  # noqa: BLE001
+        print(f"[SingLens] ⚠️ 追问教练失败：{e}")
+        return fail("INTERNAL", "教练暂时回答不了，请稍后再试。", 500)
+    return ok(out)
 
 
 # ══════════════════════════════════════════════════════════════

@@ -39,9 +39,10 @@ const HTML = `
           <button type="button" class="rep-jump" role="tab" aria-selected="false" data-rep-page-btn="coach">02 下一遍</button>
           <button type="button" class="rep-jump" role="tab" aria-selected="false" data-rep-page-btn="decomp">03 拆解</button>
           <button type="button" class="rep-jump" role="tab" aria-selected="false" data-rep-page-btn="problems">04 问题</button>
+          <button type="button" class="rep-jump" role="tab" aria-selected="false" data-rep-page-btn="ask">05 追问</button>
         </div>
         <button class="rep-arrow" type="button" data-rep-step="1" aria-label="下一页">→</button>
-        <span class="rep-count" data-rep-count>01 / 04</span>
+        <span class="rep-count" data-rep-count>01 / 05</span>
       </div>
       <label class="rep-pick" hidden>
         <span>切换报告</span>
@@ -207,6 +208,26 @@ const HTML = `
           <div class="plain" data-b="problem-empty" hidden
                style="font-size:12.5px;color:var(--ink3)">
             这一次没有检出成段的问题 —— 音准和节奏都在容差内。
+          </div>
+        </div>
+
+        <!-- 05 追问：P0 有证据的教练问答；只读报告，不改分。 -->
+        <div class="card tick ask" data-rep-page="ask">
+          <h3><span class="t">追问教练</span><span class="e">Ask Coach</span></h3>
+          <div class="ask-intro">
+            问这一遍的具体问题。回答只引用报告里的句子、时间和数字；
+            这次没测到的会直接说没测到。
+          </div>
+          <div class="ask-log" data-b="ask-log" aria-live="polite"></div>
+          <div class="ask-suggest" data-b="ask-suggest"></div>
+          <form class="ask-form" data-b="ask-form">
+            <textarea data-b="ask-input" rows="2" maxlength="400"
+              placeholder="例如：第 10 句怎么唱？ / 副歌为什么踩不准？ / 我其它地方怎么样？"
+              aria-label="追问教练"></textarea>
+            <button class="btn dark" type="submit" data-b="ask-send">发送</button>
+          </form>
+          <div class="ask-foot">
+            只发送报告数字和歌词，不上传录音；回答不改分。
           </div>
         </div>
       </div>

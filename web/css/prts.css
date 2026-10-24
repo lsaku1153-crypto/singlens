@@ -1484,3 +1484,48 @@ body[data-screen="s1"] .rail .sq{background:var(--acc)}
   .s1-foot span:not(.mk):not(.end)+span:not(.end)::before{margin-right:12px}
   .s1-foot .end{margin-left:0;width:100%}
 }
+
+/* ── 05 追问教练（P0）──────────────────────────────────────── */
+.report[data-page="ask"]{grid-template-columns:minmax(0,1fr);max-width:900px}
+.ask-intro{
+  font-size:12.5px;line-height:1.75;color:var(--ink3);
+  border-left:2px solid var(--acc);padding:2px 0 2px 12px;margin:0 0 16px
+}
+.ask-log{display:flex;flex-direction:column;gap:12px;max-height:430px;overflow:auto;
+  padding:4px 2px 6px;scroll-behavior:smooth}
+.ask-msg{max-width:86%;padding:11px 13px;border:1px solid var(--line2);
+  background:var(--bg);font-size:13px;line-height:1.75;white-space:pre-wrap;
+  overflow-wrap:anywhere}
+.ask-msg.user{margin-left:auto;background:var(--ink);color:#f6f4ee;
+  border-color:var(--ink)}
+.ask-msg.coach{border-left:3px solid var(--acc);background:rgba(255,255,255,.42)}
+.ask-msg .ask-who{display:block;font:600 8.5px/1.4 "Plex Mono",monospace;
+  letter-spacing:.14em;text-transform:uppercase;opacity:.6;margin-bottom:5px}
+.ask-evi{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+.ask-evi span{font:10px/1.4 "Plex Mono","Noto Sans SC",monospace;
+  border:1px solid var(--line2);padding:3px 6px;color:var(--ink2);
+  background:rgba(255,255,255,.4)}
+.ask-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+.ask-actions .btn{font-size:11px;padding:6px 12px}
+.ask-mode{font-size:10px;color:var(--ink4);margin-top:7px}
+.ask-suggest{display:flex;flex-wrap:wrap;gap:7px;margin:16px 0 10px}
+.ask-chip{border:1px solid var(--line2);background:transparent;color:var(--ink2);
+  font:11px/1.4 "Noto Sans SC",sans-serif;padding:7px 10px;cursor:pointer;
+  transition:background .16s,border-color .16s,color .16s}
+.ask-chip:hover{background:var(--ink);color:#f6f4ee;border-color:var(--ink)}
+.ask-form{display:flex;gap:8px;align-items:flex-end;border-top:1px solid var(--line2);
+  padding-top:12px}
+.ask-form textarea{flex:1;min-height:42px;max-height:120px;resize:vertical;
+  border:1px solid var(--line2);background:rgba(255,255,255,.55);
+  padding:9px 11px;font:13px/1.5 "Noto Sans SC",sans-serif;color:var(--ink);
+  outline:none}
+.ask-form textarea:focus{border-color:var(--acc)}
+.ask-form .btn{white-space:nowrap}
+.ask-foot{font-size:10.5px;color:var(--ink4);margin-top:9px;line-height:1.6}
+@media (max-width:720px){
+  .ask-log{max-height:none}
+  .ask-msg{max-width:96%}
+  .ask-form{flex-direction:column;align-items:stretch}
+  .ask-form .btn{width:100%}
+}
+

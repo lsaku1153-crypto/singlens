@@ -155,7 +155,7 @@ async function s3(root, ctx) {
   /* 2026-10-21 v2：报告改为**分页卡片**。
      一页只显示一组卡片；切页时不做锚点滚动，也不再把 2~3 屏内容堆在一起。
      页面切换器在报告加载前就能用。 */
-  initReportPager(root, ctx);
+  const pager = initReportPager(root, ctx);
 
   const { source, isMock } = await import('./data/index.js');
   const charts = await import('./charts.js');
@@ -805,6 +805,7 @@ async function s3(root, ctx) {
         页面不报错，只是三张证据图全空着。 */
   renderAccBlocks(root, rep);
   renderProblems(root, rep);
+  initCoachChat(root, rep, uid, pager, source);
   renderCoach(root, rep);
   // ★ 练习计划（B1）：放在最后，因为它是**收敛**层 ——
   //   上面三块是"这一遍发生了什么"，这一块是"下一遍只改哪一件事"。
@@ -2023,7 +2024,7 @@ async function playPlanDemo(demo) {
  *   `tools/binding_keys_check.mjs` 把 data-b / data-act 当契约 key 检查；
  *   这些是纯 UI 锚点，不参与数据契约，放进去只会让检查表变长。
  * ══════════════════════════════════════════════════════════ */
-const REP_PAGES = ['summary', 'coach', 'decomp', 'problems'];
+const REP_PAGES = ['summary', 'coach', 'decomp', 'problems', 'ask'];
 
 function initReportPager(root, ctx) {
   const report = root.querySelector('.report');
@@ -2084,6 +2085,187 @@ function initReportPager(root, ctx) {
 }
 
 /** 时间：优先 MM-DD HH:mm，坏值原样截断。 */
+/**
+ * 05 追问教练（P0）。
+ * 只做三件事：把问题发给后端、把带 evidence 的回答排出来、把对话留在
+ * 当前会话的 sessionStorage。**不重新评分、不改报告。**
+ */
+function initCoachChat(root, rep, uid, pager, source) {
+  const log = root.querySelector('[data-b="ask-log"]');
+  const form = root.querySelector('[data-b="ask-form"]');
+  const input = root.querySelector('[data-b="ask-input"]');
+  const send = root.querySelector('[data-b="ask-send"]');
+  const chips = root.querySelector('[data-b="ask-suggest"]');
+  if (!log || !form || !input || !send) return;
+
+  const key = uid ? `sl.ask.${uid}` : '';
+  let history = [];
+  try {
+    const raw = key ? sessionStorage.getItem(key) : '';
+    const arr = raw ? JSON.parse(raw) : [];
+    history = Array.isArray(arr)
+      ? arr.filter((m) => m && (m.role === 'user' || m.role === 'assistant')
+          && typeof m.content === 'string').slice(-10)
+      : [];
+  } catch { history = []; }
+  let busy = false;
+
+  const save = () => {
+    if (!key) return;
+    try { sessionStorage.setItem(key, JSON.stringify(history.slice(-10))); }
+    catch { /* 隐私模式 */ }
+  };
+  const scroll = () => { try { log.scrollTop = log.scrollHeight; } catch { /* ignore */ } };
+
+  const addMessage = (m) => {
+    const box = document.createElement('div');
+    box.className = `ask-msg ${m.role === 'user' ? 'user' : 'coach'}`;
+    const who = document.createElement('span');
+    who.className = 'ask-who';
+    who.textContent = m.role === 'user' ? '你' : '教练';
+    box.appendChild(who);
+    const body = document.createElement('div');
+    body.textContent = m.content;
+    box.appendChild(body);
+
+    if (m.role !== 'user') {
+      if (Array.isArray(m.evidence) && m.evidence.length) {
+        const ev = document.createElement('div');
+        ev.className = 'ask-evi';
+        m.evidence.forEach((x) => {
+          if (!x || !x.label) return;
+          const s = document.createElement('span');
+          s.textContent = String(x.label);
+          ev.appendChild(s);
+        });
+        if (ev.childNodes.length) box.appendChild(ev);
+      }
+      if (Array.isArray(m.suggestions) && m.suggestions.length) {
+        const acts = document.createElement('div');
+        acts.className = 'ask-actions';
+        m.suggestions.forEach((text) => {
+          const b = document.createElement('button');
+          b.className = 'btn';
+          b.type = 'button';
+          b.textContent = text;
+          b.onclick = () => ask(text);
+          acts.appendChild(b);
+        });
+        box.appendChild(acts);
+      }
+      if (m.practice && pager) {
+        const acts = document.createElement('div');
+        acts.className = 'ask-actions';
+        const b = document.createElement('button');
+        b.className = 'btn dark';
+        b.type = 'button';
+        b.textContent = '去「下一遍」看练法 →';
+        b.onclick = () => pager.setPage('coach', { scroll: true });
+        acts.appendChild(b);
+        box.appendChild(acts);
+      }
+      if (m.mode === 'rule_fallback') {
+        const note = document.createElement('div');
+        note.className = 'ask-mode';
+        note.textContent = '离线教练 · 未调用大模型（报告数字仍来自本次测量）';
+        box.appendChild(note);
+      }
+    }
+    log.appendChild(box);
+  };
+
+  const render = () => {
+    log.replaceChildren();
+    history.forEach(addMessage);
+    if (busy) {
+      const t = document.createElement('div');
+      t.className = 'ask-msg coach';
+      t.textContent = '正在查这份报告…';
+      log.appendChild(t);
+    }
+    scroll();
+  };
+
+  const ask = async (text, focus) => {
+    const msg = String(text || '').trim().slice(0, 400);
+    if (!msg || busy) return;
+    if (typeof source.coachChat !== 'function') {
+      history.push({ role: 'assistant', content: '当前数据源不支持追问教练。', mode: 'error' });
+      render(); save(); return;
+    }
+    busy = true;
+    send.disabled = true;
+    const old = send.textContent;
+    send.textContent = '查询中…';
+    history.push({ role: 'user', content: msg });
+    render();
+    input.value = '';
+    try {
+      const r = await source.coachChat(uid, msg,
+        history.filter((m) => m.role === 'user' || m.role === 'assistant')
+          .slice(-6).map((m) => ({ role: m.role, content: m.content })),
+        focus || null);
+      history.push({
+        role: 'assistant',
+        content: String(r.answer || '这次没有拿到回答。'),
+        evidence: Array.isArray(r.evidence) ? r.evidence : [],
+        suggestions: Array.isArray(r.suggestions) ? r.suggestions.slice(0, 3) : [],
+        practice: r.practice || null,
+        mode: r.mode || '',
+        fallback_reason: r.fallback_reason || '',
+      });
+    } catch (e) {
+      history.push({
+        role: 'assistant',
+        content: `教练暂时回答不了：${e.message}`,
+        mode: 'error',
+      });
+    } finally {
+      busy = false;
+      send.disabled = false;
+      send.textContent = old;
+      history = history.slice(-10);
+      save();
+      render();
+      try { input.focus(); } catch { /* ignore */ }
+    }
+  };
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    ask(input.value);
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      ask(input.value);
+    }
+  });
+
+  // 推荐问题：从报告里选一句真实存在的最弱句，不写死“第 10 句”。
+  const rows = (((rep.rhythm || {}).phrase || {}).phrases) || [];
+  const scored = rows.filter((x) => typeof x.score === 'number');
+  scored.sort((a, b) => a.score - b.score);
+  const worst = scored[0];
+  const suggestions = ['我最需要改哪里？'];
+  if (worst) suggestions.push(`第 ${Number(worst.line_index) + 1} 句怎么唱？`);
+  suggestions.push('其它地方怎么样？', '用哪种唱法更好？');
+  if (chips) {
+    chips.replaceChildren();
+    suggestions.forEach((text) => {
+      const b = document.createElement('button');
+      b.className = 'ask-chip';
+      b.type = 'button';
+      b.textContent = text;
+      const m = text.match(/第\s*(\d+)\s*句/);
+      b.onclick = () => ask(text, m ? { line_no: Number(m[1]) } : null);
+      chips.appendChild(b);
+    });
+  }
+  render();
+}
+
+
 function repWhen(v) {
   const d = new Date(v);
   if (Number.isFinite(d.getTime())) {

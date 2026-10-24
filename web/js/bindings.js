@@ -1493,6 +1493,7 @@ function renderProblems(root, rep) {
   const title = root.querySelector('[data-b="problem-title"]');
   const empty = root.querySelector('[data-b="problem-empty"]');
   const ps = Array.isArray(rep.problems) ? rep.problems : [];
+  const annotate = noteRangeAnnotator(rep);
   const meta = rep.meta || {};
   const canAudio = !!meta.audio_available && !!rep.session_uid;
 
@@ -1517,7 +1518,7 @@ function renderProblems(root, rep) {
   </span>` : '';
     return `<div class="problem">
   <span class="lvl ${p.severity === 'HIGH' ? 'L-bad' : 'L-mid'}">${esc(KIND[p.kind] || p.kind || '问题')}</span>
-  <span class="tt">${esc(p.headline || '')}<s>${esc(p.detail || '')}</s></span>
+  <span class="tt">${esc(annotate(p.headline || ''))}<s>${esc(annotate(p.detail || ''))}</s></span>
   ${btns}
   <span class="tm">${mmss(p.start_ms)}<i>${secs >= 0.1 ? secs.toFixed(1) + 's' : ''}</i></span>
 </div>`;
@@ -1556,6 +1557,72 @@ function renderProblems(root, rep) {
 }
 
 /**
+ * 把「第 18–26 个音」这类只有系统知道的编号，补成用户能找得到的位置：
+ * 优先用句级歌词/时间，其次用练习卡上下文，最后至少给时间。
+ * 只改展示文字，不改报告数据。
+ */
+function noteRangeAnnotator(rep) {
+  const mmss = (ms) => {
+    const t = Math.max(0, Number(ms) || 0) / 1000;
+    return `${String(Math.floor(t / 60)).padStart(2, '0')}:` +
+           `${String(Math.floor(t % 60)).padStart(2, '0')}`;
+  };
+  const range = (a, b) => {
+    const x = mmss(a); const y = mmss(b);
+    return x === y ? x : `${x}–${y}`;
+  };
+  const trim = (s, n = 14) => {
+    const x = String(s || '').trim();
+    return x.length > n ? x.slice(0, n) + '…' : x;
+  };
+  const phrases = ((((rep.rhythm || {}).phrase || {}).phrases) || [])
+    .filter((x) => x && typeof x.start_ms === 'number' && typeof x.end_ms === 'number');
+  const card = rep.practice_card || {};
+  const ctx = card.context || {};
+  const seg = card.segment || {};
+  const byKey = new Map();
+
+  const location = (p) => {
+    const a = Number(p.start_ms) || 0;
+    const b = Number(p.end_ms) || 0;
+    let best = null;
+    let overlap = 0;
+    phrases.forEach((x) => {
+      const o = Math.min(b, Number(x.end_ms)) - Math.max(a, Number(x.start_ms));
+      if (o > overlap) { overlap = o; best = x; }
+    });
+    if (best && best.text) {
+      const no = Number(best.line_index) + 1;
+      return `第 ${no} 句「${trim(best.text)}」· ${range(best.start_ms, best.end_ms)}`;
+    }
+    const segA = Number(seg.start_ms) || 0;
+    const segB = Number(seg.end_ms) || 0;
+    const cardOverlap = Math.min(b, segB) - Math.max(a, segA);
+    if (ctx.line_no && ctx.line && cardOverlap > 0) {
+      const t0 = ctx.time || (Number.isFinite(Number(ctx.line_start_ms))
+        ? range(ctx.line_start_ms, ctx.line_end_ms) : range(a, b));
+      return `第 ${ctx.line_no} 句「${trim(ctx.line)}」· ${t0}`;
+    }
+    return b > a ? range(a, b) : '';
+  };
+
+  (rep.problems || []).forEach((p) => {
+    if (!p || !p.headline) return;
+    const key = String(p.headline).replace(/\s+/g, '').replace(/[–—~至到]/g, '-');
+    const loc = location(p);
+    if (loc) byKey.set(key, loc);
+  });
+
+  return (text) => String(text || '').replace(
+    /第\s*\d+\s*(?:[-–—~至到]\s*\d+)?\s*个音/g,
+    (m) => {
+      const key = m.replace(/\s+/g, '').replace(/[–—~至到]/g, '-');
+      const loc = byKey.get(key);
+      return loc ? `${m}（${loc}）` : m;
+    });
+}
+
+/**
  * 「教练说」：总评。
  *
  * 契约 §5.1：**总评由 LLM 产出**（`comments` + `comment_source`），
@@ -1571,6 +1638,14 @@ function renderCoach(root, rep) {
   if (card) card.hidden = false;
   const st = rep.coach_struct || null;
   const txt = (rep.comments || '').trim();
+  const annotate = noteRangeAnnotator(rep);
+  const stA = st ? {
+    ...st,
+    headline: annotate(st.headline),
+    body: annotate(st.body),
+    drill: annotate(st.drill),
+  } : null;
+  const txtA = annotate(txt);
 
   /* ★ 2026-10-07 重做：优先渲染**结构化**三段（结论 / 展开 / 练法）。
      为什么：作者反馈「总评太短、不显眼、没有 AI 陪练的感觉」。
@@ -1579,28 +1654,28 @@ function renderCoach(root, rep) {
 
      ⚠️ 拿不到 `coach_struct` 就**退回散文**（老报告、模型没按 JSON 回、
         规则版兜底都属于这种情况）—— **界面不会因此空掉**。 */
-  if (st && (st.headline || st.body || st.drill)) {
+  if (stA && (stA.headline || stA.body || stA.drill)) {
     /* ★ 2026-10-18：有练习计划卡时，教练卡不再重复"下一遍这么练"。
        同屏两张处方（教练 / 计划）重点还不一致，用户不知道先照哪个做。
        计划卡是唯一处方；教练只回答"这一遍发生了什么"。 */
     const hasPlan = !!(rep.practice_plan &&
       (rep.practice_plan.focus || (rep.practice_plan.steps || []).length));
     const parts = [];
-    if (st.headline) {
-      parts.push(`<p class="co-line">${esc(st.headline)}</p>`);
+    if (stA.headline) {
+      parts.push(`<p class="co-line">${esc(stA.headline)}</p>`);
     }
-    if (st.body) {
-      parts.push(`<p class="co-body">${esc(st.body)}</p>`);
+    if (stA.body) {
+      parts.push(`<p class="co-body">${esc(stA.body)}</p>`);
     }
-    if (st.drill && !hasPlan) {
+    if (stA.drill && !hasPlan) {
       // 练法单独一块：左边一道竖线 + 小标题，让它一眼可辨
       parts.push('<div class="co-drill">'
         + '<span class="co-drill-h">下一遍这么练</span>'
-        + `<p>${esc(st.drill)}</p></div>`);
+        + `<p>${esc(stA.drill)}</p></div>`);
     }
     body.innerHTML = parts.join('');
   } else {
-    const paras = txt ? txt.split(/\n{1,}/).map((s) => s.trim()).filter(Boolean) : [];
+    const paras = txtA ? txtA.split(/\n{1,}/).map((s) => s.trim()).filter(Boolean) : [];
     body.innerHTML = paras.length
       ? paras.map((p) => `<p class="co-body">${esc(p)}</p>`).join('')
       : '<p class="note">这一次没有生成总评（后端没返回 comments）。</p>';
@@ -2099,6 +2174,7 @@ function initCoachChat(root, rep, uid, pager, source) {
   if (!log || !form || !input || !send) return;
 
   const key = uid ? `sl.ask.${uid}` : '';
+  const annotate = noteRangeAnnotator(rep);
   let history = [];
   try {
     const raw = key ? sessionStorage.getItem(key) : '';
@@ -2125,7 +2201,7 @@ function initCoachChat(root, rep, uid, pager, source) {
     who.textContent = m.role === 'user' ? '你' : '教练';
     box.appendChild(who);
     const body = document.createElement('div');
-    body.textContent = m.content;
+    body.textContent = m.role === 'assistant' ? annotate(m.content) : m.content;
     box.appendChild(body);
 
     if (m.role !== 'user') {

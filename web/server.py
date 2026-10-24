@@ -2174,6 +2174,10 @@ def build_report(sess, notes, aligned, scores, feats, ast, perf, y=None) -> dict
     _practice_card = practice_plan.build_practice_card(
         _plan, _pp_ref_notes, segments, scores, feats, problems,
         style_profile=_style_profile)
+    # G58：把节拍诊断里最不稳的一小节也做成可练的短片段。
+    # 只对有 beat 诊断的整首歌报告生效；没有就 None，不造死按钮。
+    _beat_card = practice_plan.build_beat_card(
+        scores.get("beat"), _pp_ref_notes, ref_offset_ms=GUIDE_LEAD_MS)
 
     return {
         "session_uid": sess.uid,
@@ -2251,6 +2255,8 @@ def build_report(sess, notes, aligned, scores, feats, ast, perf, y=None) -> dict
         #   "只练这一小段 + 可验证的过关标准"；前端据此长出「练这一句」。
         #   没有可定位参考片段时是 None —— 不硬造按钮。
         "practice_card": _practice_card,
+        # G58：节拍诊断的短片段（可点“只练这几小节”）；不参与评分。
+        "beat_practice": _beat_card,
         # ★ 总评（契约 §5.1：分项用模板、**总评用 LLM**；LLM 不可用时退到规则）。
         #   2026-09-24 之前这里恒为 `None` + `rule_fallback` ——
         #   也就是说**规则兜底那一条路从来没被实现**，而前端当时显示的是
@@ -4837,6 +4843,7 @@ async def practice_segment(req: Request):
         return fail("BAD_REQUEST", "请求体必须是对象。")
     uid = str(body.get("session_uid") or "").strip()
     singer_id = str(body.get("singer_id") or "").strip()
+    kind = str(body.get("kind") or "note").lower()
     if not uid:
         return fail("BAD_REQUEST", "缺 session_uid。")
     try:
@@ -4853,10 +4860,12 @@ async def practice_segment(req: Request):
     #   报告页读取时会补，但这里直接读 sess.report，必须同样补一次；
     #   否则微练习仍按两个音建模板，用户还是不知道从哪进拍。
     rep = _ensure_practice_context(rep)
-    card = rep.get("practice_card")
+    # G58：节拍诊断的短片段走 beat_practice；普通“练这一句”仍走 practice_card。
+    card = (rep.get("beat_practice") if kind == "beat"
+            else rep.get("practice_card"))
     if not card or not (card.get("segment") or {}).get("notes"):
         return fail("BAD_REQUEST", "这一遍没有可拆的参考片段。", 400)
-    queue = card.get("queue") or [card]
+    queue = [card] if kind == "beat" else (card.get("queue") or [card])
     try:
         sidx = int(body.get("segment_index") or 0)
     except (TypeError, ValueError):
@@ -4873,7 +4882,8 @@ async def practice_segment(req: Request):
     ctx = item.get("context") or card.get("context") or {}
     line_from, line_to = ctx.get("line_from"), ctx.get("line_to")
     line_notes = []
-    if (isinstance(line_from, int) and isinstance(line_to, int)
+    if (kind != "beat"
+            and isinstance(line_from, int) and isinstance(line_to, int)
             and sess.reference_id):
         try:
             from analysis.align import BUILTIN as _B, load_builtin as _lb

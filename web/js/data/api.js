@@ -150,11 +150,12 @@ export class ApiSource extends DataSource {
    * 后端从 `practice_card.segment` 取参考音，归一化到 0 起点后存成模板；
    * 前端随后用现有 B 模式录一小段，练完回到报告看 before/after。
    */
-  practiceSegment(sessionUid, singerId, segmentIndex = 0) {
+  practiceSegment(sessionUid, singerId, segmentIndex = 0, kind = 'note') {
     return req('POST', '/practice/segment', {
       session_uid: sessionUid,
       singer_id: singerId || getSingerId(),
       segment_index: Number(segmentIndex) || 0,
+      kind: kind || 'note',
     });
   }
 

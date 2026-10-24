@@ -624,6 +624,88 @@ def build_practice_card(plan: dict, ref_notes: list[dict], segments: list[dict],
     return base
 
 
+def build_beat_card(beat: dict | None, ref_notes: list[dict] | None,
+                    ref_offset_ms: int = 2000) -> dict | None:
+    """把节拍诊断的“最不稳小节”变成一张可练的短片段卡（G58）。
+
+    节拍诊断的 worst_bars 时间是**用户录音时间轴**（含 2 秒预备），
+    参考音符是原始歌曲时间轴，所以选音时要减掉 ref_offset_ms。
+    找不到至少 2 个参考音就不造卡 —— 不拿一个音硬凑“练这几小节”。
+    """
+    if not beat or not ref_notes:
+        return None
+    for bar in (beat.get("worst_bars") or []):
+        try:
+            b0 = float(bar.get("start_ms")) - float(ref_offset_ms)
+            b1 = float(bar.get("end_ms")) - float(ref_offset_ms)
+        except (TypeError, ValueError):
+            continue
+        picked = []
+        for n in ref_notes:
+            s = n.get("start_ms")
+            if not isinstance(s, (int, float)):
+                continue
+            if not (b0 - 250 <= float(s) <= b1 + 400):
+                continue
+            if n.get("pitch_midi") is None:
+                continue
+            picked.append(n)
+        if len(picked) < 2:
+            continue
+        picked.sort(key=lambda n: int(n.get("index", 0)))
+        start_ms = min(int(n["start_ms"]) for n in picked)
+        end_ms = max(int(n["end_ms"]) for n in picked)
+        first = picked[0]
+        label = f"{_fmt_time(int(bar.get('start_ms') or 0))} 这 {bar.get('active_beats', '?')} 拍"
+        ctx = {}
+        if first.get("line"):
+            ctx = {
+                "line": first.get("line"),
+                "line_no": first.get("line_no"),
+                "line_from": first.get("line_from"),
+                "line_to": first.get("line_to"),
+                "time": label,
+            }
+        rate = bar.get("hit_rate")
+        return {
+            "kind": "beat_segment",
+            "metric": "beat_hit_rate",
+            "focus": "先把这几拍的落点踩稳",
+            "why": (f"这一小段有 {bar.get('active_beats', '?')} 个该唱的拍，"
+                    f"只踩中 {bar.get('hit_beats', 0)} 个（{rate}%）。"
+                    "不是整首节奏差，是这一段的落点散了。"),
+            "steps": ["先听这一段的伴奏，跟着拍手或念「哒」",
+                      "再只唱这一小段，每个字落在拍点上",
+                      "最后一次录一遍，看拍点命中率有没有到 80%"],
+            "done": "这一段的拍点命中率到 80%（±120ms）",
+            "label": label,
+            "segment": {
+                "from": int(picked[0].get("index", 0)),
+                "to": int(picked[-1].get("index", 0)),
+                "start_ms": start_ms,
+                "end_ms": end_ms,
+                "notes": [{"start_ms": int(n["start_ms"]),
+                           "end_ms": int(n["end_ms"]),
+                           "pitch_midi": float(n["pitch_midi"])}
+                          for n in picked],
+            },
+            "before": {
+                "beat_hit_rate": rate,
+                "active_beats": bar.get("active_beats"),
+                "hit_beats": bar.get("hit_beats"),
+                "mean_offset_ms": bar.get("mean_offset_ms"),
+            },
+            "success": {
+                "metric": "beat_hit_rate", "op": "gte", "target": 80.0,
+                "unit": "%", "label": "这一段拍点命中率到 80%",
+            },
+            "context": ctx,
+            "scored": False,
+            "queue": [],
+        }
+    return None
+
+
 def _fmt_time(ms: int) -> str:
     ms = max(0, int(ms))
     return f"{ms // 60000:02d}:{(ms // 1000) % 60:02d}"

@@ -489,6 +489,7 @@ async function s3(root, ctx) {
       || ((rep.meta || {}).phrase_rhythm) || null;
     const beat = rep.beat_diagnostic
       || ((rep.meta || {}).beat_diagnostic) || null;
+    const bp = rep.beat_practice || null;
     const isPhrase = rep.rhythm.basis === 'phrase' && ph
       && typeof ph.score === 'number';
     const hasBeat = beat && typeof beat.hit_rate === 'number';
@@ -541,9 +542,36 @@ async function s3(root, ctx) {
         line += `；最不稳 ${mm}:${ss}`
           + `（${bars[0].hit_beats || 0}/${bars[0].active_beats || 0} 拍）`;
       }
+      if (bp && bp.label) line += `；先练 ${bp.label}`;
       html += (html ? '<br>' : '') + line + '。';
     }
     rb.innerHTML = html;
+    // G58：最不稳小节有可拆片段时，给一个“只练这几小节”入口。
+    // 复用现有微练习管线，只多传 kind=beat；没有片段就不造死按钮。
+    if (hasBeat && bp && bp.segment
+        && Array.isArray(bp.segment.notes) && bp.segment.notes.length >= 2) {
+      const row = document.createElement('div');
+      row.className = 'plan-practice';
+      row.style.marginTop = '10px';
+      const b = document.createElement('button');
+      b.className = 'btn dark';
+      b.type = 'button';
+      b.textContent = '只练这几小节';
+      b.title = '只练 ' + (bp.label || '这几拍');
+      b.onclick = async () => {
+        b.disabled = true;
+        const old = b.textContent;
+        b.textContent = '正在准备这几小节…';
+        try {
+          await startPracticeAtIndex(source, uid, [bp], 0, 'beat');
+        } catch (e) {
+          b.textContent = `⚠️ 打不开：${e.message}`;
+          setTimeout(() => { b.textContent = old; b.disabled = false; }, 3000);
+        }
+      };
+      row.appendChild(b);
+      rb.appendChild(row);
+    }
   }
 
   /* ★ 2026-10-20：把「分数低扣在哪一半」写在分数下面。
@@ -1803,9 +1831,9 @@ function renderPracticePlan(root, rep, source, uid) {
  * sessionStorage 后跳 s2。真正的开麦/录制仍走 s2 现有 B 模式 ——
  * 不另造一条录音管线，避免"微练习的分数和正式报告不是一个引擎"。
  */
-async function startPracticeAtIndex(source, originalUid, queue, index) {
+async function startPracticeAtIndex(source, originalUid, queue, index, kind = 'note') {
   if (!source || !originalUid) throw new Error('没有会话，无法开始微练习');
-  const r = await source.practiceSegment(originalUid, singerId(), index);
+  const r = await source.practiceSegment(originalUid, singerId(), index, kind);
   const q = Array.isArray(queue) && queue.length ? queue : [r.card];
   const idx = Number.isInteger(r.segment_index) ? r.segment_index : index;
   const state = {
@@ -1836,6 +1864,13 @@ async function startPracticeAtIndex(source, originalUid, queue, index) {
 function practiceAfter(rep, st) {
   const seg = st && st.card && st.card.segment;
   if (!seg) return null;
+  // G58：节拍练习的 before/after 都用节拍命中率，不拿音准冒充。
+  if (st.card.kind === 'beat_segment') {
+    const bd = (rep && (rep.beat_diagnostic
+      || ((rep.meta || {}).beat_diagnostic))) || null;
+    return bd && typeof bd.hit_rate === 'number'
+      ? { beat_hit_rate: bd.hit_rate } : null;
+  }
   const pc = rep.practice_card;
   if (pc && pc.segment && pc.segment.from === seg.from
       && pc.segment.to === seg.to && pc.before) {
@@ -5837,7 +5872,7 @@ async function s9(root, ctx) {
   const metric = success.metric || 'pitch_median_abs';
   const unitMap = {
     pitch_median_abs: ' 音分', tempo_ratio: '',
-    onset_median: ' ms', dynamic_range: ' dB',
+    onset_median: ' ms', dynamic_range: ' dB', beat_hit_rate: '%',
   };
   const unit = success.unit != null ? success.unit : (unitMap[metric] || '');
   const fmt = (v) => (typeof v === 'number' && Number.isFinite(v)

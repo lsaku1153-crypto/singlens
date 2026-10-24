@@ -2713,31 +2713,69 @@ def _ensure_practice_context(rep: dict) -> dict:
     if pp.get("kind") not in (
             "pitch_segment", "tempo", "onset", "dynamic"):
         return rep
-    if (meta.get("reference_source") or "") != "builtin_score":
-        return rep
     rid = meta.get("reference_id") or ""
+    src = meta.get("reference_source") or ""
     try:
-        from analysis.align import BUILTIN as _B, load_builtin as _lb
-        if rid not in _B:
-            return rep
-        ref = _lb(rid, first_start_ms=0)
-        lines = ref.lyric_lines or []
         ref_notes = []
-        for n in ref.notes:
-            d = {"index": n.index, "pitch_midi": n.pitch_midi,
-                 "start_ms": n.start_ms, "end_ms": n.end_ms}
-            ln = next((x for x in lines
-                       if x.get("from", 0) <= n.index <= x.get("to", -1)), None)
-            if ln:
-                pos = n.index - int(ln["from"])
-                text = ln.get("text") or ""
-                d.update({
-                    "line": text, "line_index": lines.index(ln),
-                    "line_no": lines.index(ln) + 1,
-                    "syllable": text[pos] if 0 <= pos < len(text) else "",
-                    "line_from": int(ln["from"]), "line_to": int(ln["to"]),
-                })
-            ref_notes.append(d)
+        if src == "builtin_score":
+            from analysis.align import BUILTIN as _B, load_builtin as _lb
+            if rid not in _B:
+                return rep
+            ref = _lb(rid, first_start_ms=0)
+            lines = ref.lyric_lines or []
+            for n in ref.notes:
+                d = {"index": n.index, "pitch_midi": n.pitch_midi,
+                     "start_ms": n.start_ms, "end_ms": n.end_ms}
+                ln = next((x for x in lines
+                           if x.get("from", 0) <= n.index <= x.get("to", -1)), None)
+                if ln:
+                    pos = n.index - int(ln["from"])
+                    text = ln.get("text") or ""
+                    d.update({
+                        "line": text, "line_index": lines.index(ln),
+                        "line_no": lines.index(ln) + 1,
+                        "syllable": text[pos] if 0 <= pos < len(text) else "",
+                        "line_from": int(ln["from"]), "line_to": int(ln["to"]),
+                    })
+                ref_notes.append(d)
+        else:
+            # ★ N12 / 2026-10-24：旧 B 模板报告也要补 plan/card 上下文。
+            #   模板的歌词是行级时间戳（没有字级），所以只补“第几句/整句”，
+            #   不硬编 syllable —— 报告里显示整句，不假装知道是哪个字。
+            tpl = templates.load(rid)
+            if tpl is None:
+                return rep
+            lyr = list(tpl.lyrics or [])
+            line_spans = []
+            for k, line in enumerate(lyr):
+                a = int(line.get("start_ms") or 0)
+                b = int(line.get("end_ms") or 0)
+                idxs = []
+                for i, n in enumerate(tpl.notes or []):
+                    if n.get("pitch_midi") is None:
+                        continue
+                    mid = (int(n.get("start_ms") or 0) + int(n.get("end_ms") or 0)) / 2
+                    if a <= mid < b:
+                        idxs.append(i)
+                if idxs:
+                    line_spans.append((k, a, b, line, min(idxs), max(idxs)))
+            for i, n in enumerate(tpl.notes or []):
+                if n.get("pitch_midi") is None:
+                    continue
+                d = {"index": i, "pitch_midi": n["pitch_midi"],
+                     "start_ms": int(n.get("start_ms") or 0),
+                     "end_ms": int(n.get("end_ms") or 0)}
+                mid = (d["start_ms"] + d["end_ms"]) / 2
+                hit = next((x for x in line_spans if x[1] <= mid < x[2]), None)
+                if hit:
+                    k, a, b, line, lo, hi = hit
+                    d.update({
+                        "line": line.get("text") or "",
+                        "line_index": k, "line_no": k + 1,
+                        "line_from": lo, "line_to": hi,
+                        "line_start_ms": a, "line_end_ms": b,
+                    })
+                ref_notes.append(d)
         pi = rep.get("pitch") or {}
         rh = rep.get("rhythm") or {}
         ex = rep.get("expressiveness") or {}

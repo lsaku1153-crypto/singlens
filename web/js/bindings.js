@@ -333,6 +333,12 @@ async function s3(root, ctx) {
     if (ew.phrase_window) {
       meta.textContent += `（只评了 ${ew.notes_used}/${ew.notes_total} 个音）`;
     }
+    // N11：带伴奏的录音先做了谐波分离，分数不能当清唱比。
+    if (m.accompaniment_mode) {
+      meta.textContent += '　⚠️ 本次做过伴奏分离，分数仅供参考';
+      meta.title += '\n这次录音含伴奏：系统先做谐波分离再分析，'
+        + '分离残留会影响音准/力度，分数不能和清唱直接比。';
+    }
     // ★ 2026-10-20：歌曲参考的来源/质量横幅。
     const rsEl = root.querySelector('[data-b="ref-source"]');
     if (rsEl) {
@@ -758,7 +764,28 @@ async function s3(root, ctx) {
   const nz = rep.expressiveness.normalized || {};
   const order = ['dynamic_range', 'phrase_dynamics', 'rubato',
                  'vibrato', 'onset_style', 'brightness'];
-  charts.drawRadar({ vals: order.map((k) => (typeof nz[k] === 'number' ? nz[k] : null)) });
+  /* U2：历史样本中位参照环。只有至少 3 次练习才画，且六轴都必须有值；
+     数据来自 /profile 的 normalized 中位数（不是前端另算一套）。 */
+  let medVals = null;
+  try {
+    const prof = await source.getProfile(singerId());
+    if (prof && (prof.session_count || 0) >= 3) {
+      const pn = prof.normalized || {};
+      const arr = order.map((k) => (
+        typeof pn[k] === 'number' && isFinite(pn[k]) ? pn[k] : null));
+      if (arr.every((v) => v !== null)) medVals = arr;
+    }
+  } catch { /* 画像读不到就不画参照环，不耽误报告 */ }
+  charts.drawRadar({
+    vals: order.map((k) => (typeof nz[k] === 'number' ? nz[k] : null)),
+    median: medVals,
+  });
+  const rcap = root.querySelector('.radar-cap');
+  if (rcap) {
+    rcap.textContent = medVals
+      ? 'Six Dimensions · 归一化 0–1 · 虚线 = 历史中位'
+      : 'Six Dimensions · 归一化 0–1';
+  }
 
   /* ── 六块「分项结论」整块重画（2026-09-23，审计 P0-1）───────────
      背景：这六块以前是 v7 稿的**冻结文案**（一个 data-b 都没有），

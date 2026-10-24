@@ -92,6 +92,24 @@ export function drawRadar(data){
     g.beginPath(); g.moveTo(cx,cy); g.lineTo(cx+Math.cos(a)*R, cy+Math.sin(a)*R); g.stroke();
   }
 
+  /* U2（2026-10-24）：样本中位数参照环。
+     数据来自 `/profile` 的六维 normalized 中位数，不是画一个固定 0.5 的假环。
+     只有六轴都有值才画；缺一项就整条不画，避免把“未评估”当成 0 拉出缺口。 */
+  const med=(data&&Array.isArray(data.median)&&data.median.length===n)
+    ? data.median.map(v=>(typeof v==='number'&&isFinite(v))?Math.max(0,Math.min(1,v)):null)
+    : null;
+  if(med && med.every(v=>v!==null)){
+    g.beginPath();
+    for(let i=0;i<=n;i++){
+      const k=i%n, a=-Math.PI/2+k*2*Math.PI/n;
+      const x=cx+Math.cos(a)*R*med[k], y=cy+Math.sin(a)*R*med[k];
+      i?g.lineTo(x,y):g.moveTo(x,y);
+    }
+    g.closePath();
+    g.strokeStyle=C.ink4; g.lineWidth=1.1; g.setLineDash([5,4]); g.stroke();
+    g.setLineDash([]);
+  }
+
   // 多边形：**逐段**连（遇到 null 就断开重起），不跨过未评估的轴。
   // 若只有 1 个评估项，画不出面，就只打点。
   const pt=i=>{

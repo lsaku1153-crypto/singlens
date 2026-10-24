@@ -500,10 +500,11 @@ def _answer_llm(ctx: dict, history: list) -> tuple[dict | None, str]:
                                    else _SYSTEM)}]
                     + hist + [{"role": "user", "content": user}],
         "temperature": 0.55 if ctx.get("scope") == "general" else 0.45,
-        "max_tokens": 500,
+        # deepseek-flash 会先产生 reasoning tokens；500 会被推理吃满、正文为空。
+        "max_tokens": 1500,
     }
     try:
-        resp = coach._post(f"{base}/chat/completions", key, body, 12.0)
+        resp = coach._post(f"{base}/chat/completions", key, body, 20.0)
         raw = (resp["choices"][0]["message"]["content"] or "").strip()
     except Exception as e:  # noqa: BLE001
         return None, f"LLM 调用失败：{str(e)[:100]}"

@@ -52,12 +52,13 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KEY_FILE = os.path.join(ROOT, "data", "llm_key.txt")
 
-# 默认走 DeepSeek（契约 §5.1 里举的例子就是 `deepseek-chat`）。
+# 默认走 DeepSeek（契约 §5.1）。2026-10-24 起默认模型改为
+# `deepseek-flash`（DeepSeek 当前可用模型；`deepseek-chat` 已从模型列表移除）。
 # ⚠️ `base_url` 可换 —— 任何 **OpenAI 兼容**的 `/chat/completions` 都能用，
 #    这样将来换模型不用改代码。
 DEFAULT_BASE = "https://api.deepseek.com"
-DEFAULT_MODEL = "deepseek-chat"
-TIMEOUT_S = 12.0          # 报告页在等它，不能太久
+DEFAULT_MODEL = "deepseek-flash"
+TIMEOUT_S = 20.0          # deepseek-flash 会先产生 reasoning tokens，不能按旧 12s
 MAX_CHARS = 260           # 总评长度上限（报告页只有那么大地方）
 
 # ★ 系统提示：三条安全约束 + 角色 + **结构化输出**。
@@ -371,7 +372,7 @@ def generate(scores, feats, problems, ref_title=None, tempo_ratio=None,
     """产出总评。**永远不抛异常。**
 
     返回 `(文本, 结构化, 来源, 原因)`：
-      · 成功 → `(拼好的文本, {headline, body, drill}, "deepseek-chat", "")`
+      · 成功 → `(拼好的文本, {headline, body, drill}, "deepseek-flash", "")`
         `结构化` 可能为 `None`（模型没按 JSON 回）——那时前端按散文渲染。
       · 失败 → `(None, None, "rule_fallback", 失败原因)` —— 调用方走规则版
 
@@ -397,9 +398,10 @@ def generate(scores, feats, problems, ref_title=None, tempo_ratio=None,
                 + "\n\n请按系统提示要求，只输出那个 JSON 对象。"},
         ],
         "temperature": 0.6,
-        # ⚠️ 结构化输出比原来的散文长（三段共约 200–250 字）⇒ 上调。
-        #    但**不能太大**：报告页在等它，而 TIMEOUT_S 只有 12 秒。
-        "max_tokens": 700,
+        # ⚠️ `deepseek-flash` 是推理型模型：completion 里先消耗 reasoning tokens。
+        #    700 时实测 reasoning 把额度吃满、content 为空（finish_reason=length）。
+        #    留出 reasoning + 结构化输出的空间。
+        "max_tokens": 1500,
     }
 
     t0 = time.time()

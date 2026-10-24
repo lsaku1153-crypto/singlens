@@ -5007,6 +5007,8 @@ async function s2(root, ctx) {
           · ${t.lyrics_count || 0} 行歌词 · 原唱参考</span></div>
         <div class="sl-acts">
           <button class="pbtn" type="button" data-sl-tpl="${esc(t.template_id)}">继续跟唱</button>
+          ${t.has_vocal ? `<button class="pbtn" type="button" data-sl-retry-lyrics="${esc(t.template_id)}"
+            title="用原唱人声重新识别歌词（旧报告不变，下次跟唱生效）">重识歌词</button>` : ''}
           <button class="pbtn" type="button" data-sl-del-tpl="${esc(t.template_id)}">删</button>
         </div></div>`);
     }
@@ -5040,6 +5042,28 @@ async function s2(root, ctx) {
           await source.deleteTemplate(b.dataset.slDelTpl, singerId());
           await loadSongLibrary();
         } catch (e) { songErr(`删除失败：${e.message}`); }
+      };
+    });
+    songLib.querySelectorAll('[data-sl-retry-lyrics]').forEach((b) => {
+      b.onclick = async () => {
+        if (typeof source.retryTemplateLyrics !== 'function') {
+          songErr('当前数据源不支持重切歌词。'); return;
+        }
+        if (!window.confirm('重新识别这首歌的歌词？\\n\\n'
+            + '只更新模板歌词，不会改旧报告；下次跟唱才生效。\\n'
+            + '会跑一次 Whisper，可能需要几十秒。')) return;
+        b.disabled = true;
+        const old = b.textContent;
+        b.textContent = '识别中…';
+        try {
+          const r = await source.retryTemplateLyrics(b.dataset.slRetryLyrics, singerId());
+          songErr(`已重切 ${r.lyrics_count || 0} 行歌词；旧报告不变，下次跟唱生效。`);
+          await loadSongLibrary();
+        } catch (e) {
+          songErr(`重切歌词失败：${e.message}`);
+          b.disabled = false;
+          b.textContent = old;
+        }
       };
     });
     songLib.querySelectorAll('[data-sl-job]').forEach((b) => {

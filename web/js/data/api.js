@@ -209,6 +209,13 @@ export class ApiSource extends DataSource {
                { title, singer_id: singerId || '' });
   }
 
+  /** G52：旧歌曲模板重切歌词（只重跑 Whisper，不动音符/分数）。 */
+  retryTemplateLyrics(templateId, singerId) {
+    return req('POST',
+      `/template/${encodeURIComponent(templateId)}/lyrics/retry`,
+      { singer_id: singerId || '' });
+  }
+
   finishSession(uid) { return req('POST', `/session/${uid}/finish`); }
 
   /**

@@ -1,4 +1,4 @@
-﻿"""跟唱模板存储（模式 B 两遍制的基础）。
+"""跟唱模板存储（模式 B 两遍制的基础）。
 
 ━━━ 为什么要这个模块 ━━━
 
@@ -392,6 +392,41 @@ def cleanup_orphan_backing() -> int:
     except OSError:
         pass
     return removed
+
+
+def update_lyrics(template_id: str, lyrics: list, lyrics_source: Optional[str] = None) -> bool:
+    """只替换歌词行（旧模板重切歌词用）；音符/身份/路径都不动。
+
+    `lyrics` 必须是 [{start_ms,end_ms,text}]。旧报告不会回溯 ——
+    报告里已经冻结了当时的 reference_lyrics_count 和行文本。
+    """
+    clean = []
+    for x in (lyrics or []):
+        if not isinstance(x, dict):
+            continue
+        text = str(x.get("text") or "").strip()
+        if not text:
+            continue
+        try:
+            a = int(x.get("start_ms") or 0)
+            b = int(x.get("end_ms") or 0)
+        except (TypeError, ValueError):
+            continue
+        if b <= a:
+            continue
+        clean.append({"start_ms": a, "end_ms": b, "text": text})
+    if not clean:
+        return False
+    con = connect()
+    try:
+        cur = con.execute(
+            "UPDATE template SET lyrics_json=?, lyrics_source=? WHERE template_id=?",
+            (json.dumps(clean, ensure_ascii=False), lyrics_source or "whisper",
+             template_id))
+        con.commit()
+        return cur.rowcount > 0
+    finally:
+        con.close()
 
 
 def rename(template_id: str, singer_id: Optional[str], title: str) -> bool:

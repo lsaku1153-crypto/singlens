@@ -4723,13 +4723,16 @@ async function s2(root, ctx) {
     return `<div class="pickrow" data-tpl="${esc(tid)}">
       <div class="pickmain">
         <div class="t">${esc(t.title || tid)}</div>
-        <div class="m">我的模板 · ${esc(t.note_count || '?')} 个音 · ${esc(String(t.created_at || '').slice(0, 10))}${t.source_kind === 'song_vocal' ? ' · <b class="tpl-kind">歌曲参考 · 原调</b>' : ''}</div>
+        <div class="m">我的模板 · ${esc(t.note_count || '?')} 个音 · ${esc(String(t.created_at || '').slice(0, 10))}${t.source_kind === 'song_vocal' ? ` · <b class="tpl-kind">歌曲参考 · 原调</b> · ${t.lyrics_count || 0} 行歌词` : ''}</div>
       </div>
       <div class="rowacts">
         <button class="pbtn" data-act="tpl-preview:${esc(tid)}"
           title="${t.source_kind === 'song_vocal' ? '试听真实伴奏（原调，带 2 秒预备）' : '试听这条模板的旋律（4 拍预备 + 合成旋律）'}">试听</button>
         <button class="pbtn" data-act="tpl-rename:${esc(tid)}"
           title="给这个模板改个名字">改名</button>
+        ${(t.source_kind === 'song_vocal' && t.has_vocal)
+          ? `<button class="pbtn" data-act="tpl-retry-lyrics:${esc(tid)}"
+          title="用原唱人声重新识别歌词（旧报告不变，下次跟唱生效）">重识歌词</button>` : ''}
         <button class="pbtn" data-act="tpl-del:${esc(tid)}"
           title="删掉这个模板（连它的音符数据一起删，删了找不回来）">删</button>
         <button class="go" data-act="tpl:${esc(tid)}">开始</button>
@@ -5562,6 +5565,45 @@ async function s2(root, ctx) {
           tplMsg(`已改名为「${title}」。`);
         } catch (e) {
           tplMsg(`改名失败：${e.message}。名字没变。`, true);
+        } finally {
+          b.disabled = false;
+          b.textContent = oldTxt;
+        }
+        return;
+      }
+
+      /* ★ G52（2026-10-24）：旧歌曲模板重切歌词。
+         只重跑 Whisper 更新 lyrics_json，不动音符、不改旧报告；
+         按钮明确写“下次跟唱生效”，不要让人以为报告会立刻变。 */
+      if (act.startsWith('tpl-retry-lyrics:')) {
+        const tid = act.slice('tpl-retry-lyrics:'.length);
+        const t = tpls.find((x) => x.template_id === tid);
+        const name = (t && t.title) || tid;
+        if (typeof source.retryTemplateLyrics !== 'function') {
+          tplMsg('当前数据源不支持重切歌词。', true);
+          return;
+        }
+        if (!window.confirm(`重新识别「${name}」的歌词？\n\n`
+            + '只更新模板歌词，不会改旧报告；下次跟唱才生效。\n'
+            + '会跑一次 Whisper，可能需要几十秒。')) return;
+        b.disabled = true;
+        const oldTxt = b.textContent;
+        b.textContent = '识别中…';
+        try {
+          const r = await source.retryTemplateLyrics(tid, singerId());
+          if (t) {
+            t.lyrics_count = r.lyrics_count || 0;
+            t.has_lyrics = !!(r.lyrics_count);
+          }
+          const rowEl = b.closest('.pickrow');
+          const me = rowEl && rowEl.querySelector('.m');
+          if (me && t) {
+            me.innerHTML = me.innerHTML.replace(/\d+ 行歌词|未识别歌词/,
+              `${t.lyrics_count || 0} 行歌词`);
+          }
+          tplMsg(`已重切 ${r.lyrics_count || 0} 行歌词；旧报告不变，下次跟唱生效。`);
+        } catch (e) {
+          tplMsg(`重切歌词失败：${e.message}`, true);
         } finally {
           b.disabled = false;
           b.textContent = oldTxt;

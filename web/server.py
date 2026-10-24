@@ -5082,6 +5082,48 @@ async def rename_template_endpoint(tid: str, req: Request):
     return ok({"template_id": tid, "title": title})
 
 
+@app.post("/api/template/{tid}/lyrics/retry")
+async def retry_template_lyrics(tid: str, req: Request):
+    """旧歌曲模板重切歌词（G52）：只对原唱人声重跑 Whisper，不改音符/分数。
+
+    ★ 为什么需要：G51 的“停顿断行”只对**新分析**生效；旧模板的歌词是
+      旧切法，报告里可能把两句粘成一行。重新识别一次即可修好文本，
+      但**旧报告不会自动变** —— 报告里的行已经冻结，只有下次跟唱生效。
+    """
+    body = await _json(req)
+    if not isinstance(body, dict):
+        return fail("BAD_REQUEST", "请求体必须是对象。")
+    singer_id = str(body.get("singer_id") or "").strip()
+    tpl = templates.load(tid)
+    if tpl is None:
+        return fail("NOT_FOUND", f"找不到模板 {tid}", 404)
+    if not singer_id:
+        return fail("BAD_REQUEST", "重切歌词必须带 singer_id。")
+    if tpl.singer_id and singer_id != tpl.singer_id:
+        return fail("FORBIDDEN",
+                    f"这条模板属于 {tpl.singer_id}，不是 {singer_id}。", 403)
+    if (tpl.source_kind or "") != "song_vocal" or not tpl.vocal_path:
+        return fail("BAD_REQUEST", "只有上传歌曲（带原唱人声）的模板才能重切歌词。")
+    p = tpl.vocal_path
+    if not os.path.isabs(p):
+        p = os.path.join(ROOT, p)
+    if not os.path.exists(p):
+        return fail("NOT_FOUND", "这条模板的原唱人声文件不在了，无法重切。", 404)
+    lines, source, err = await asyncio.to_thread(_song_lyrics, p)
+    if err or not lines:
+        return fail("LYRICS_FAILED", err or "没识别到歌词。", 502)
+    if not templates.update_lyrics(tid, lines, source):
+        return fail("NOT_FOUND", "歌词保存失败：模板可能已被删除。", 404)
+    return ok({
+        "template_id": tid,
+        "lyrics": lines,
+        "lyrics_source": source,
+        "lyrics_count": len(lines),
+        "old_reports_unchanged": True,
+        "message": "歌词已重切；旧报告不会变，下次跟唱生效。",
+    })
+
+
 # ══════════════════════════════════════════════════════════════
 # ⑭ POST /api/privacy/purge —— 「清空所有录音与记录」
 # ══════════════════════════════════════════════════════════════

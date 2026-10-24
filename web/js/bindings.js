@@ -2164,7 +2164,13 @@ function initCoachChat(root, rep, uid, pager, source) {
         acts.appendChild(b);
         box.appendChild(acts);
       }
-      if (m.mode === 'rule_fallback') {
+      if (m.scope === 'general') {
+        const note = document.createElement('div');
+        note.className = 'ask-mode';
+        note.textContent = '自由教练 · 通用建议（不是本次测量）'
+          + (m.mode === 'rule_fallback' ? ' · 离线' : '');
+        box.appendChild(note);
+      } else if (m.mode === 'rule_fallback') {
         const note = document.createElement('div');
         note.className = 'ask-mode';
         note.textContent = '离线教练 · 未调用大模型（报告数字仍来自本次测量）';
@@ -2212,6 +2218,7 @@ function initCoachChat(root, rep, uid, pager, source) {
         suggestions: Array.isArray(r.suggestions) ? r.suggestions.slice(0, 3) : [],
         practice: r.practice || null,
         mode: r.mode || '',
+        scope: r.scope || 'report',
         fallback_reason: r.fallback_reason || '',
       });
     } catch (e) {

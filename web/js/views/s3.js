@@ -215,8 +215,8 @@ const HTML = `
         <div class="card tick ask" data-rep-page="ask">
           <h3><span class="t">追问教练</span><span class="e">Ask Coach</span></h3>
           <div class="ask-intro">
-            问这一遍的具体问题。回答只引用报告里的句子、时间和数字；
-            这次没测到的会直接说没测到。
+            报告类问题会引用句子、时间和数字；唱法、风格、表达这类开放问题
+            会给几条可试路线，不假装是测量。这次没测到的会直接说没测到。
           </div>
           <div class="ask-log" data-b="ask-log" aria-live="polite"></div>
           <div class="ask-suggest" data-b="ask-suggest"></div>
@@ -227,7 +227,8 @@ const HTML = `
             <button class="btn dark" type="submit" data-b="ask-send">发送</button>
           </form>
           <div class="ask-foot">
-            只发送报告数字和歌词，不上传录音；回答不改分。
+            只发送报告数字和歌词，不上传录音；回答不改分。开放问题只给建议，
+            不是“系统判定你只能这样唱”。
           </div>
         </div>
       </div>

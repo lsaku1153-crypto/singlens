@@ -172,6 +172,18 @@ def _practice_ctx(rep: dict, focus_beat: bool) -> dict | None:
     return None
 
 
+def _explicit_phrase(rep: dict, question: str, focus: dict | None) -> bool:
+    if isinstance(focus, dict) and focus.get("line_no") is not None:
+        return True
+    if re.search(r"第\s*[0-9一二两三四五六七八九十]+\s*句", question or ""):
+        return True
+    for r in _phrase_rows(rep):
+        text = str(r.get("text") or "")
+        if len(text) >= 2 and text in (question or ""):
+            return True
+    return False
+
+
 def build_context(rep: dict, question: str, focus: dict | None = None) -> dict:
     meta = rep.get("meta") or {}
     p = rep.get("pitch") or {}
@@ -185,18 +197,28 @@ def build_context(rep: dict, question: str, focus: dict | None = None) -> dict:
         intent = "rhythm"
     elif any(k in q for k in ("音准", "跑调", "偏高", "偏低", "高音", "低音")):
         intent = "pitch"
-    elif any(k in q for k in ("唱法", "方式", "风格", "处理", "怎么唱")):
+    elif any(k in q for k in ("唱法", "方式", "风格", "处理", "怎么唱",
+                               "感情", "表达", "适合", "探索", "味道", "感觉")):
         intent = "style"
     elif any(k in q for k in ("其它", "还有", "哪里", "整体", "别的")):
         intent = "overview"
     else:
         intent = "overview"
 
-    phrase, line_no = _pick_phrase(rep, q, focus,
-                                   allow_worst=(intent != "rhythm"))
-    notes = _line_notes(rep, phrase) if phrase else []
-    missing_line = line_no is not None and phrase is None
-    beat = None if missing_line else _beat_ctx(rep)
+    explicit = _explicit_phrase(rep, q, focus)
+    # 没有点名某一句/某段歌词时，“唱法/风格/怎么唱”走自由教练：
+    # 可以讲通用声乐/风格知识，不强行拿最差的一句当答案。
+    scope = "general" if (intent == "style" and not explicit) else "report"
+    if scope == "general":
+        phrase, line_no = None, None
+        notes = []
+        beat = None
+    else:
+        phrase, line_no = _pick_phrase(rep, q, focus,
+                                       allow_worst=(intent != "rhythm"))
+        notes = _line_notes(rep, phrase) if phrase else []
+        missing_line = line_no is not None and phrase is None
+        beat = None if missing_line else _beat_ctx(rep)
 
     overview = {
         "reference_title": meta.get("reference_title"),
@@ -264,13 +286,23 @@ def build_context(rep: dict, question: str, focus: dict | None = None) -> dict:
     } for r in scored[:3]]
     style = {
         "tempo_ratio": overview["tempo_ratio"],
+        "tempo_bpm": _num(((rep.get("beat_diagnostic") or {}).get("tempo_bpm")
+                           if isinstance(rep.get("beat_diagnostic"), dict) else None)
+                          or ((meta.get("beat_diagnostic") or {}).get("tempo_bpm")
+                              if isinstance(meta.get("beat_diagnostic"), dict) else None)),
         "reference_source": overview["reference_source"],
         "transpose": overview["transpose"],
         "reference_max_gap_ms": meta.get("reference_max_gap_ms"),
         "lyrics_count": overview["reference_lyrics_count"],
     }
-    practice = _practice_ctx(rep, intent == "rhythm" or bool(beat and not phrase))
+    practice = (None if scope == "general"
+                else _practice_ctx(rep, intent == "rhythm" or bool(beat and not phrase)))
     evidence = []
+    if scope == "general":
+        evidence.append({
+            "kind": "reference",
+            "label": f"参考：{overview.get('reference_title') or '这首歌'} · 自由教练",
+        })
     if phrase_out:
         evidence.append({
             "kind": "phrase",
@@ -297,6 +329,7 @@ def build_context(rep: dict, question: str, focus: dict | None = None) -> dict:
         evidence.append({"kind": "practice", "label": practice.get("label") or "练习片段"})
     return {
         "intent": intent,
+        "scope": scope,
         "requested_line": line_no,
         "overview": overview,
         "phrase": phrase_out,
@@ -310,7 +343,36 @@ def build_context(rep: dict, question: str, focus: dict | None = None) -> dict:
     }
 
 
+def _answer_general_rule(ctx: dict) -> dict:
+    """没有 LLM 时的自由教练：给路线，不装成测量结论。"""
+    o = ctx["overview"]
+    style = ctx.get("style") or {}
+    ref = o.get("reference_title") or "这首歌"
+    parts = [
+        f"不用把「{ref}」定死成一种唱法，可以先试两条路线：",
+        "A. 贴原唱：以连奏为主，句尾收气、少加装饰；先把句首和句长按参考做稳。",
+        "B. 个人表达：保留一点气声或轻微延迟，但每句只做一个变化，"
+        "不要整首同时加气声、滑音和强弱。",
+    ]
+    if style.get("tempo_ratio") is not None:
+        parts.append(f"这一遍整体速度是参考的 {style['tempo_ratio']:.2f} 倍；"
+                     "先保持这个速度，再决定要不要更自由。")
+    parts.append("你更想「像原唱」还是「唱出自己的感觉」？我可以按这个方向继续拆。")
+    return {
+        "answer": "\n".join(parts),
+        "suggestions": [
+            "我想更贴原唱，先改哪里？",
+            "我想唱出自己的感觉，怎么加才不油？",
+            "第 3 句具体怎么处理？",
+        ][:3],
+        "practice": None,
+        "mode": "rule_fallback",
+    }
+
+
 def _answer_rule(ctx: dict) -> dict:
+    if ctx.get("scope") == "general":
+        return _answer_general_rule(ctx)
     o = ctx["overview"]; p = ctx["phrase"]; b = ctx.get("beat")
     parts = []
     suggestions = []
@@ -400,6 +462,19 @@ _SYSTEM = """你是 SingLens 的跟唱教练，正在回答用户对一份测量
 {"answer":"2–4 句，120–260 字","suggestions":["1 个立刻能做的动作","最多 3 条"]}
 不要 markdown 代码块。"""
 
+_SYSTEM_GENERAL = """你是 SingLens 的音乐教练，正在陪用户探索一首歌的唱法/风格/表达。
+你可以讲通用声乐与音乐处理知识，但必须区分「报告测量」和「一般建议」。
+硬性要求：
+1. 先回答用户问的唱法/风格，不要一上来复述分数；报告只作补充。
+2. 报告里的数字只能引用 DATA；DATA 没有的不要编。
+3. 不要断言用户的声部、音色或“天生适合什么”；可以给 2–3 条路线和取舍。
+4. 先问目标/偏好（更像原唱 / 自己的感觉），或给用户两个可试方向。
+5. 不诊断声带疾病，不承诺结果；不要用“你必须”“唯一正确”这种口气。
+6. 中文口语，具体到可试的动作；不要只写“多练气息”。
+只输出一个 JSON 对象：
+{"answer":"2–4 句，120–260 字","suggestions":["一个可试的方向","最多 3 条"]}
+不要 markdown 代码块。"""
+
 
 def _answer_llm(ctx: dict, history: list) -> tuple[dict | None, str]:
     key = coach.load_key()
@@ -412,15 +487,20 @@ def _answer_llm(ctx: dict, history: list) -> tuple[dict | None, str]:
         if isinstance(m, dict) and m.get("role") in ("user", "assistant"):
             hist.append({"role": m["role"], "content": str(m.get("content") or "")[:240]})
     payload = {k: ctx.get(k) for k in
-               ("intent", "overview", "phrase", "worst_phrases",
-                "beat", "style", "practice", "problems")}
+               (("scope", "overview", "style")
+                if ctx.get("scope") == "general" else
+                ("scope", "intent", "overview", "phrase", "worst_phrases",
+                 "beat", "style", "practice", "problems"))}
     user = ("DATA（JSON）：\n" + json.dumps(payload, ensure_ascii=False)
             + "\n\n用户追问：" + (ctx.get("question") or ""))
     body = {
         "model": model,
-        "messages": [{"role": "system", "content": _SYSTEM}]
+        "messages": [{"role": "system",
+                       "content": (_SYSTEM_GENERAL if ctx.get("scope") == "general"
+                                   else _SYSTEM)}]
                     + hist + [{"role": "user", "content": user}],
-        "temperature": 0.45, "max_tokens": 500,
+        "temperature": 0.55 if ctx.get("scope") == "general" else 0.45,
+        "max_tokens": 500,
     }
     try:
         resp = coach._post(f"{base}/chat/completions", key, body, 12.0)
@@ -452,13 +532,17 @@ def chat(rep: dict, question: str, history: list | None = None,
     rule = _answer_rule(ctx)
     out = dict(rule)
     out.update({
+        "scope": ctx.get("scope") or "report",
         "evidence": ctx.get("evidence") or [],
         "practice": ctx.get("practice"),
         "followups": (
-            [f"第 {ctx['phrase']['line_no']} 句怎么唱？",
-             "其它地方怎么样？", "用哪种唱法更好？"]
-            if ctx.get("phrase") else
-            ["哪里最需要改？", "节奏哪里最不稳？", "用哪种唱法更好？"]
+            ["我想更贴原唱，先改哪里？", "我想唱出自己的感觉，怎么加才不油？",
+             "第 3 句具体怎么处理？"]
+            if ctx.get("scope") == "general" else
+            ([f"第 {ctx['phrase']['line_no']} 句怎么唱？",
+              "其它地方怎么样？", "用哪种唱法更好？"]
+             if ctx.get("phrase") else
+             ["哪里最需要改？", "节奏哪里最不稳？", "用哪种唱法更好？"])
         ),
     })
     if not ctx["overview"].get("self_reference"):

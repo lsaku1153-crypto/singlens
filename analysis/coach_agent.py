@@ -213,6 +213,7 @@ def build_context(rep: dict, question: str, focus: dict | None = None) -> dict:
         "expressiveness_score": _num(ex.get("score")),
         "align_ratio": _num(ratio),
         "low_alignment_confidence": bool(low_conf),
+        "measurement_note": None,
         "self_reference": bool(meta.get("self_reference")),
         "reference_lyrics_count": meta.get("reference_lyrics_count"),
         "transpose": meta.get("transpose"),
@@ -232,6 +233,16 @@ def build_context(rep: dict, question: str, focus: dict | None = None) -> dict:
             "matched_notes": phrase.get("matched_notes"),
             "notes": notes,
         }
+    # 与 UI 同一门槛：逐音对齐低且没有句级分时，节奏/总分是“未评估”，
+    # 不能让教练把旧的 18.6/56.2 当成有效测量复述。
+    if low_conf and not phrase_out:
+        overview["rhythm_score"] = None
+        overview["rhythm_accuracy_ms"] = None
+        overview["rhythm_stability_ms"] = None
+        overview["total"] = None
+        overview["measurement_note"] = (
+            f"逐音对齐仅 {(ratio or 0) * 100:.0f}%，本次节奏与总分未评估；"
+            "只能参考音准、表现力和已定位的练习片段。")
     problems = []
     for x in (rep.get("problems") or [])[:3]:
         if not isinstance(x, dict):

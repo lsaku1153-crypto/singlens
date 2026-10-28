@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>apiSource 适配层测试 · SingLens</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  body{font:14px/1.7 ui-monospace,Consolas,monospace;background:#0f1115;color:#dfe6ee;padding:28px}
+  h1{font-size:18px;margin:0 0 6px}
+  .sub{color:#7d8797;font-size:12px;margin-bottom:20px}
+  .g{margin:18px 0 8px;color:#18d1ff;font-size:13px;letter-spacing:.05em}
+  .r{padding:5px 10px;border-left:3px solid #333;margin:3px 0;background:#161a21;white-space:pre-wrap;word-break:break-all}
+  .ok{border-left-color:#12a97e}
+  .bad{border-left-color:#e0523a;background:#1f1512}
+  .warn{border-left-color:#d99b1f;background:#1f1c12}
+  .k{color:#7d8797}
+  summary{color:#7d8797;cursor:pointer;font-size:12px}
+  pre{background:#161a21;padding:10px;border-radius:6px;overflow:auto;max-height:340px;font-size:11.5px}
+</style>
+</head>
+<body>
+<h1>apiSource 适配层测试</h1>
+<div class="sub">直接调 web/js/data/api.js 打真实后端，逐个方法核对返回形状是否符合 DataSource 契约</div>
+<div id="out"></div>
+
+<script type="module">
+import { ApiSource } from '/js/data/api.js';
+import { ApiError, METRIC_IDS } from '/js/data/source.js';
+
+const out = document.getElementById('out');
+const results = [];
+let curGroup = '';
+
+function group(t) { curGroup = t; out.insertAdjacentHTML('beforeend', `<div class="g">${t}</div>`); }
+function row(level, text) {
+  out.insertAdjacentHTML('beforeend', `<div class="r ${level}">${text}</div>`);
+  results.push({ group: curGroup, level, text });
+}
+const ok = (t) => row('ok', '✅ ' + t);
+const bad = (t) => row('bad', '❌ ' + t);
+const warn = (t) => row('warn', '⚠️ ' + t);
+
+function has(obj, keys, label) {
+  const miss = keys.filter(k => !(obj && k in obj));
+  if (miss.length) bad(`${label} 缺少字段：${miss.join(', ')}`);
+  else ok(`${label} 字段齐全`);
+  return miss.length === 0;
+}
+function dump(label, o) {
+  out.insertAdjacentHTML('beforeend',
+    `<details><summary>${label} 原始返回</summary><pre>${JSON.stringify(o, null, 2)}</pre></details>`);
+}
+/**
+ * 跑一次适配层调用并把结果记下来。
+ *
+ * `opts.expectError`：**期望它抛错**。有些接口"成功"才是错的
+ *   （比如往 `PUT /api/config` 传一个不存在的组 —— 静默成功等于
+ *   用户看到"保存成功"而设置没生效）。没有这个开关的话，
+ *   "该报错的地方报不报错"根本没法在这张页面上表达。
+ */
+async function tryCall(label, fn, check, opts = {}) {
+  try {
+    const r = await fn();
+    if (opts.expectError) {
+      bad(`${label} 竟然成功了 —— 本该被拒绝（静默成功比报错更坏）`);
+      return r;
+    }
+    check(r);
+    return r;
+  } catch (e) {
+    if (opts.expectError) {
+      ok(`${label} 被正确拒绝：${e.code || e.name}`);
+      return null;
+    }
+    bad(`${label} 抛错：${e.name}: ${e.message}${e.code ? ' [' + e.code + ']' : ''}`);
+    return null;
+  }
+}
+
+const src = new ApiSource();
+const T0 = performance.now();
+let uid = null;
+
+// ── bootstrap ──
+group('bootstrap()');
+await tryCall('bootstrap', () => src.bootstrap(), (r) => {
+  has(r, ['singers', 'references', 'config'], 'bootstrap');
+  if (Array.isArray(r.references)) ok(`参考曲目 ${r.references.length} 首`);
+  dump('bootstrap', r);
+});
+
+// ── createSession ──
+group('createSession()');
+uid = await tryCall('createSession', () => src.createSession({ singerId: 'S01', mode: 'A', referenceId: 'REF_TWINKLE_1' }), (r) => {
+  has(r, ['session_uid', 'status'], 'createSession');
+  if (!('reference' in r)) warn('缺 reference 对象（DataSource 契约要求）—— 服务端只回了 reference_id');
+  dump('createSession', r);
+});
+const uidStr = uid && uid.session_uid;
+
+// ── 上传一段真实录音，走完整链路 ──
+group('uploadRecording() + 完整链路');
+let report = null;
+if (uidStr) {
+  /* 合成一段 wav 并上传。
+     ⚠️ 这段合成音频**必须真的能被切出音符**（2026-09-24 重写）。
+        旧版是 6 秒、每 0.5 秒换一个音高，包络写成
+        `env = 0.5 + 0.5*((i % (sr*0.5)) / (sr*0.5))` —— 那是一条**锯齿**：
+        每个音开头瞬间从 1.0 掉到 0.5（只有 6 dB 的台阶，没有静音、没有起音）。
+        分割器拿不到清晰的起点，切出的音符 < 3 个 ⇒ 后端（正确地）判
+        `NO_VOICE`，于是 getReport / getComparison 一连串 FAIL。
+        也就是说：**这两个 FAIL 是测试夹具的毛病，不是被测代码的毛病** ——
+        而它俩一直挂着，"这张页面红着的两条"就再也没人看了。
+
+        现在的夹具按真实演唱的形态来：
+        · 8 个音，每个 0.55 秒，音之间留 90 ms **静音**（分割器靠它定边界）
+        · 每个音有自己的起音（40 ms 渐入）与衰减（到 0.12 再收尾）
+        · 长音上叠一点 5.4 Hz / ±1.2% 的颤音（让颤音指标算得出来） */
+  const sr = 22050, dur = 6;
+  const n = sr * dur;
+  const buf = new ArrayBuffer(44 + n * 2);
+  const dv = new DataView(buf);
+  const ws = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+  ws(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); ws(8, 'WAVEfmt ');
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, sr, true); dv.setUint32(28, sr * 2, true); dv.setUint16(32, 2, true);
+  dv.setUint16(34, 16, true); ws(36, 'data'); dv.setUint32(40, n * 2, true);
+  const MEL = [60, 60, 67, 67, 69, 69, 67, 65];      // 小星星第一句（8 个音）
+  const NOTE_S = 0.55, GAP_S = 0.09;                 // 单位：秒
+  const CYCLE = NOTE_S + GAP_S;
+  const ATTACK_S = 0.04;
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    const k = Math.floor(t / CYCLE);
+    if (k >= MEL.length) break;                      // 后面的 6 秒以内不再发声
+    const tn = t - k * CYCLE;                        // 本音内部的时间
+    let v = 0;
+    if (tn < NOTE_S) {
+      const f = 440 * Math.pow(2, (MEL[k] - 69) / 12);
+      // 起音渐入 + 缓慢衰减；音尾收到 0.12，边界干净
+      const env = Math.min(1, tn / ATTACK_S) *
+                  (1 - 0.88 * Math.max(0, (tn - ATTACK_S) / (NOTE_S - ATTACK_S)));
+      const vib = 1 + 0.012 * Math.sin(2 * Math.PI * 5.4 * tn);
+      v = Math.sin(2 * Math.PI * f * vib * t) * env * 0.6;
+    }
+    dv.setInt16(44 + i * 2, Math.max(-1, Math.min(1, v)) * 32767, true);
+  }
+  const wav = new Blob([buf], { type: 'audio/wav' });
+  const file = new File([wav], 'test.wav', { type: 'audio/wav' });
+
+  // 第二次上传，带 retry_of_uid 串成复练对（契约 §4.2）
+  let upUid2 = null;
+
+  const up = await tryCall('uploadRecording', () => src.uploadRecording(file), (r) => {
+    has(r, ['session_uid'], 'uploadRecording');
+    dump('uploadRecording', r);
+  });
+  const upUid = up && up.session_uid;
+
+  // ⚠️ 这一步必须在拿到 upUid 之后 —— 它要用 upUid 当 retry_of_uid。
+  //    （第一版插在前面，报 "Cannot access 'upUid' before initialization"）
+  if (upUid) {
+    const fd2 = new FormData();
+    fd2.append('file', file, 'retry.wav');
+    const r2 = await fetch(`/api/upload?singer_id=S01&retry_of_uid=${upUid}`,
+                           { method: 'POST', body: fd2 });
+    const j2 = await r2.json();
+    if (j2.ok) {
+      upUid2 = j2.data.session_uid;
+      for (let i = 0; i < 120; i++) {
+        const s2 = await src.getSessionStatus(upUid2);
+        if (['SCORED', 'FAILED'].includes(s2.status)) break;
+        await new Promise(r => setTimeout(r, 250));
+      }
+      ok(`第二次上传（复练）完成：${upUid2}`);
+    } else {
+      bad('第二次上传失败：' + JSON.stringify(j2).slice(0, 120));
+    }
+  }
+
+  if (upUid) {
+    // 等精算
+    let st = null;
+    for (let i = 0; i < 120; i++) {
+      st = await src.getSessionStatus(upUid);
+      if (['SCORED', 'FAILED'].includes(st.status)) break;
+      await new Promise(r => setTimeout(r, 250));
+    }
+    group('getSessionStatus()');
+    if (st) {
+      has(st, ['status'], 'getSessionStatus');
+      if (!('step' in st) && !('step_label' in st)) {
+        bad('DataSource 契约要 {status, step, step_total, step_label}，服务端回的是 {status, progress:{step,total,label}}');
+      }
+      dump('getSessionStatus', st);
+    }
+
+    group('getReport()');
+    report = await tryCall('getReport', () => src.getReport(upUid), (r) => {
+      has(r, ['session_uid', 'pitch', 'rhythm', 'expressiveness', 'total',
+              'metrics_excluded', 'segments', 'problems', 'comments_by_metric', 'evidence', 'meta'],
+          'ScoreReport');
+      if (r.segments && r.segments.length) {
+        has(r.segments[0], ['note_index', 'ref_note_index', 'start_ms', 'end_ms',
+            'pitch_midi', 'pitch_cents_dev', 'onset_dev_ms', 'rms_mean', 'rms_peak',
+            'onset_rise_ms', 'vibrato_rate', 'vibrato_depth', 'centroid_mean',
+            'jump_suppressed', 'align_method'], 'NoteSegment');
+      }
+      // null ⟺ metrics_excluded
+      const e = r.expressiveness, ex = r.metrics_excluded || [];
+      const vibNull = e.vibrato_rate === null;
+      if (vibNull === ex.includes('vibrato')) ok('null ⟺ metrics_excluded 一致');
+      else bad(`null⟺excluded 不一致：vibrato_rate=${e.vibrato_rate} excluded=${JSON.stringify(ex)}`);
+      ok(`总分 ${r.total} · 音符 ${r.segments.length} 个`);
+      dump('ScoreReport（截断）', { total: r.total, pitch: r.pitch, rhythm: r.rhythm,
+        expressiveness: r.expressiveness, metrics_excluded: ex,
+        evidence_points: r.evidence && r.evidence.points });
+    });
+
+    group('getComparison()');
+    await tryCall('getComparison', () => src.getComparison(upUid2 || upUid), (r) => {
+      if (r && 'current' in r && !('retry' in r)) {
+        bad('DataSource 契约要 {base, retry, delta}，服务端回的是 {base, current, delta}');
+      } else if (r) ok('形状符合');
+      dump('getComparison', r);
+    });
+  }
+}
+
+// ── singer 系列 ──
+group('getHistory() / getProgress() / getProfile()');
+await tryCall('getHistory', () => src.getHistory('singer_upload'), (r) => {
+  if (Array.isArray(r)) ok('返回数组（符合 DataSource 契约）');
+  else {
+    bad(`DataSource 契约要 Array<{session_uid, created_at, total_score, ...}>，服务端回的是对象：${Object.keys(r || {}).join(', ')}`);
+    if (r && r.sessions && r.sessions[0] && !('total_score' in r.sessions[0])) {
+      bad(`会话项用 "${Object.keys(r.sessions[0]).filter(k => k.startsWith('total'))[0]}" 而不是 "total_score"`);
+    }
+  }
+  dump('getHistory', r);
+});
+await tryCall('getProgress', () => src.getProgress('S01'), (r) => {
+  const need = ['labels', 'series'];
+  const miss = need.filter(k => !(r && k in r));
+  if (miss.length) bad(`DataSource 契约要 {labels, series}，缺：${miss.join(', ')}（服务端用 "t" 当时间轴）`);
+  else ok('形状符合');
+  if (r && r.series && 'expr' in r.series) ok('series.expr 存在');
+  else warn('series.expr 不存在（UI 的进步曲线要用）');
+  dump('getProgress', r);
+});
+await tryCall('getProfile', () => src.getProfile('S01'), (r) => {
+  const need = ['cluster_label', 'session_count', 'summary', 'chips', 'metrics'];
+  const miss = need.filter(k => !(r && k in r));
+  if (miss.length) bad(`DataSource 契约要 {cluster_label, session_count, summary, chips, metrics}，缺：${miss.join(', ')}`);
+  else ok('形状符合');
+  dump('getProfile', r);
+});
+
+group('getExperimentSummary()');
+await tryCall('getExperimentSummary', () => src.getExperimentSummary(), (r) => {
+  const need = ['stats', 'scatter', 'weights', 'r2', 'rho'];
+  const miss = need.filter(k => !(r && k in r));
+  if (miss.length) bad(`DataSource 契约要 {stats, scatter, weights, r2, rho}，缺：${miss.join(', ')}`);
+  else ok('形状符合');
+  dump('getExperimentSummary', r);
+});
+
+group('getConfig() / putConfig()');
+await tryCall('getConfig', () => src.getConfig(), (r) => {
+  if (r && typeof r === 'object') ok(`配置项 ${Object.keys(r).length} 个`);
+  dump('getConfig', r);
+});
+/* ⚠️ 这里原来传的是 `{ rt_window_ms: 5000 }` —— **顶层裸键**。
+   而服务端的 `PUT /api/config` 是**按组**写的（`{recording: {rt_window_ms: …}}`）。
+   这个测试之所以一直"通过"，是因为服务端当时对未知组**静默忽略**、
+   返回 200 —— 于是"设置写进去了"是假的，测试却是绿的。
+   2026-09-24 服务端改成明确拒绝未知组（400 + 可用组名），这条才暴露出来。
+   **要改的是这个测试，不是服务端**：静默成功正是要消灭的东西。 */
+await tryCall('putConfig', () => src.putConfig({ recording: { rt_window_ms: 5000 } }), (r) => {
+  if (r && 'config' in r) ok('putConfig 返回 {updated, config}');
+  else if (r) warn('putConfig 返回形状与服务端略有差异');
+  dump('putConfig', r);
+});
+await tryCall('putConfig(未知组应被拒绝)',
+  () => src.putConfig({ 不存在的组: { x: 1 } }),
+  null, { expectError: true });
+
+// ── 汇总 ──
+const nOk = results.filter(r => r.level === 'ok').length;
+const nBad = results.filter(r => r.level === 'bad').length;
+const nWarn = results.filter(r => r.level === 'warn').length;
+out.insertAdjacentHTML('beforeend',
+  `<div class="g">汇总</div><div class="r ${nBad ? 'bad' : 'ok'}">` +
+  `${nOk} 通过 · ${nBad} 失败 · ${nWarn} 提示  （耗时 ${((performance.now() - T0) / 1000).toFixed(1)}s）</div>`);
+
+window.__RESULT = { ok: nOk, bad: nBad, warn: nWarn, results };
+</script>
+</body>
+</html>

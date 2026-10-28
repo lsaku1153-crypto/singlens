@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>录音采集 · SingLens 实验</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  :root{--bg:#f6f8fa;--card:#fff;--ink:#1a1d21;--ink2:#5b6472;--ink3:#8b95a3;
+        --line:#e3e8ee;--acc:#12a97e;--warn:#d99b1f;--bad:#d9411c;--blue:#2b7fff}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font:14px/1.7 -apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;padding:28px 20px 80px}
+  .wrap{max-width:820px;margin:0 auto}
+  h1{font-size:24px;font-weight:800;letter-spacing:-.02em}
+  .sub{color:var(--ink2);font-size:13px;margin:6px 0 22px}
+  .card{background:var(--card);border-radius:12px;padding:22px 24px;margin-bottom:16px;
+        box-shadow:0 1px 3px #0000000d,0 6px 20px #00000008}
+  .card h2{font-size:15px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+  .step{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--ink);
+        color:#fff;font-size:12px;align-items:center;justify-content:center;flex:none}
+  .card.done .step{background:var(--acc)}
+  .card.off{opacity:.45;pointer-events:none}
+  .row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+  label{display:block;font-size:12px;color:var(--ink2);margin-bottom:5px;font-weight:600}
+  label .req{color:var(--bad)}
+  input,select,textarea{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:7px;
+        font:inherit;font-size:13.5px;background:#fff;color:var(--ink)}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px #2b7fff18}
+  .f1{flex:1;min-width:150px}.f2{flex:2;min-width:220px}
+  button{padding:9px 18px;border:none;border-radius:7px;font:inherit;font-size:13.5px;font-weight:600;
+        cursor:pointer;background:var(--ink);color:#fff;transition:.15s}
+  button:hover:not(:disabled){opacity:.85}
+  button:disabled{opacity:.35;cursor:not-allowed}
+  button.sec{background:#eef1f5;color:var(--ink)}
+  button.rec{background:var(--bad)}
+  button.big{padding:13px 26px;font-size:15px}
+  .hint{font-size:12px;color:var(--ink3);margin-top:6px;line-height:1.65}
+  .hint b{color:var(--ink2)}
+  .bar{height:8px;background:#eef1f5;border-radius:4px;overflow:hidden;margin:10px 0}
+  .bar i{display:block;height:100%;background:var(--acc);width:0%;transition:.08s}
+  .bar.warn i{background:var(--warn)}.bar.bad i{background:var(--bad)}
+  .meter{height:26px;background:#eef1f5;border-radius:6px;overflow:hidden;position:relative;margin:8px 0}
+  .meter i{display:block;height:100%;width:0%;background:var(--acc);transition:.05s}
+  .meter .z1,.meter .z2{position:absolute;top:0;bottom:0;border-left:1px dashed #0003}
+  .meter .z1{left:18%}.meter .z2{left:82%}
+  .msg{padding:11px 14px;border-radius:8px;font-size:13px;margin-top:10px;line-height:1.7}
+  .msg.ok{background:#e8f7f1;color:#0b6b4f}
+  .msg.warn{background:#fdf6e3;color:#8a6410}
+  .msg.bad{background:#fdecea;color:#a02c14}
+  .msg.info{background:#eef4ff;color:#1a4fa8}
+  .takes{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
+  .take{border:1px solid var(--line);border-radius:9px;padding:12px 14px;flex:1;min-width:150px}
+  .take b{font-size:13px;display:block;margin-bottom:4px}
+  .take .st{font-size:12px;color:var(--ink3)}
+  .take.ok{border-color:var(--acc);background:#f3fbf7}
+  .kv{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:12px}
+  .kv div{background:#f8fafb;border-radius:7px;padding:9px 11px}
+  .kv s{display:block;font-size:11px;color:var(--ink3);text-decoration:none}
+  .kv b{font-size:16px;font-weight:700}
+  .score{font-size:34px;font-weight:800;letter-spacing:-.03em}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+  th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line)}
+  th{font-size:11.5px;color:var(--ink3);font-weight:600}
+  .checks{list-style:none;font-size:13px}
+  .checks li{padding:5px 0;display:flex;gap:8px}
+  .mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>录音采集</h1>
+  <p class="sub">SingLens 毕业设计实验 · 每人 3 遍，约 10 分钟。
+     <a href="/rate" style="color:var(--blue)">评分入口</a> ·
+     <a href="/experiment" style="color:var(--blue)">采集进度</a></p>
+
+  <!-- ① 登记 -->
+  <div class="card" id="c1">
+    <h2><span class="step">1</span>登记演唱者</h2>
+    <div class="row">
+      <div class="f1"><label>编号 <span class="req">*</span></label>
+        <input id="sid" placeholder="S01（留空自动编号）"></div>
+      <div class="f1"><label>性别 <span class="req">*</span></label>
+        <select id="gender"><option value="">请选择</option><option>男</option><option>女</option><option>其他</option></select></div>
+      <div class="f1"><label>自评声部</label>
+        <select id="part"><option value="">不确定</option><option>高音</option><option>中音</option><option>低音</option></select></div>
+    </div>
+    <div class="row">
+      <div class="f2"><label>演唱经验 <span class="req">*</span></label>
+        <input id="exp" placeholder="例：3 年合唱团 / 0 年，KTV 水平 / 6 年钢琴+声乐课">
+        <div class="hint"><b>这是最重要的协变量</b> —— 受训和未受训的人表现力差异很大，
+          必须两种都有，否则六指标拉不开差距。</div></div>
+      <div class="f1"><label>年龄段</label>
+        <select id="age"><option value="">不填</option><option>18–20</option><option>21–23</option><option>24+</option></select></div>
+    </div>
+    <div class="row">
+      <div class="f1"><label>设备型号</label><input id="device" placeholder="例：联想小新 + 罗德 NT-USB"></div>
+      <div class="f1"><label>同意方式 <span class="req">*</span></label>
+        <select id="consent"><option value="">请选择</option><option>签字</option><option>口头</option></select></div>
+    </div>
+    <div class="row">
+      <div class="f2"><label>条件代号（仅「构造式单人样本」方案需要）</label>
+        <select id="condition">
+          <option value="">不用（普通采集 / 自然变异方案）</option>
+          <optgroup label="基线：刻意平铺直叙">
+            <option>FLAT-1</option><option>FLAT-2</option>
+          </optgroup>
+          <optgroup label="只加力度起伏">
+            <option>DYN-1</option><option>DYN-2</option>
+          </optgroup>
+          <optgroup label="只加颤音">
+            <option>VIB-1</option><option>VIB-2</option>
+          </optgroup>
+          <optgroup label="只加 rubato（时值弹性）">
+            <option>RUB-1</option><option>RUB-2</option>
+          </optgroup>
+          <optgroup label="全都加 / 全力表现">
+            <option>ART-1</option><option>ART-2</option>
+          </optgroup>
+        </select>
+        <div class="hint">选了的这一遍会记录条件代号，供
+          <span class="mono">experiments/analyze_constructed.py</span> 做操作检验。
+          <b>10 遍的打乱顺序见备用方案 §2.2</b>。</div>
+      </div>
+    </div>
+    <button class="big" id="btnReg">登记</button>
+    <div id="regMsg"></div>
+  </div>
+
+  <!-- ② 录音 -->
+  <div class="card off" id="c2">
+    <h2><span class="step">2</span>录音 <span style="font-weight:400;color:var(--ink3);font-size:12.5px" id="whoami"></span></h2>
+
+    <div class="msg info">
+      <b>唱之前请对演唱者说</b>（否则数据会废）：<br>
+      「这不是比赛，我们测的是<b>唱得有没有味道</b>，不是谁唱得好。
+      你可以<b>故意唱得夸张一点、投入一点</b>，那样对我们更有用。」
+    </div>
+
+    <div class="hint" style="margin:12px 0 6px">
+      <b>曲目：《小星星》第一句</b> —— do do sol sol la la sol（一闪一闪亮晶晶），约 15 秒。<br>
+      所有人唱同一首，这是控制变量。
+    </div>
+
+    <button class="big" id="btnMic">启用麦克风</button>
+    <div id="micMsg"></div>
+
+    <div id="recArea" style="display:none;margin-top:16px">
+      <label>音量（把麦克风距离调到绿区）</label>
+      <div class="meter"><i id="lvl"></i><span class="z1"></span><span class="z2"></span></div>
+      <div class="hint" id="lvlHint">等待声音…</div>
+
+      <div style="margin-top:16px">
+        <button class="rec big" id="btnRec">● 开始录音</button>
+        <span class="mono" id="timer" style="margin-left:12px;font-size:15px"></span>
+      </div>
+      <div class="takes" id="takes"></div>
+      <div id="recMsg"></div>
+      <div style="margin-top:16px" id="submitArea" hidden>
+        <button class="big" id="btnSubmit">提交这 3 遍并分析</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ③ 结果 -->
+  <div class="card off" id="c3">
+    <h2><span class="step">3</span>分析结果</h2>
+    <div id="results"></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+/* ★ 取可选字段的值：**元素不存在就返回空串**（2026-09-24 修）。
+   踩过的坑：登记处理器里写的是 `$('note').value` —— 而表单里
+   **根本没有 `id="note"`**（`exp_singer.note` 这一列没有对应输入框）。
+   后果不是"备注为空"，而是：
+     填完表单点「登记参与者」→ `Cannot read properties of null` → 抛异常，
+     页面上只显示这句 JS 报错 ⇒ **实验采集从第一步就走不通**，
+     只能靠 curl 手工登记。
+   而这个洞在页面上看着完全正常（表单渲染得好好的、按钮也在），
+   只有"真的点一次"才能发现。所以探针里那条断言必须证明**库里真的多了一行**，
+   不能只断言"提示里没有报错字样"（第一版就是这么写的，于是假通过）。 */
+const val = id => { const el = $(id); return el && el.value ? String(el.value) : ''; };
+
+/* ★ 操作者令牌（2026-09-24，审计 §3.2）。
+   采集页的接口（登记参与者 / 登记录音 / 改条件）现在**只给操作者用**，
+   同学在同一个 WiFi 下随手 curl 是进不来的（令牌也挡不住本机进程 —— 那不是这一层的事）。
+   怎么拿到令牌：起服务时控制台会打印一条**带令牌的链接**，
+   点它打开本页即可（服务端会种一个 cookie，下面的 fetch 自动带上）。
+   也可以把令牌填进下面这个输入框（存 localStorage，下次不用再填）。 */
+let OP_TOKEN = '';
+try {
+  const q = new URLSearchParams(location.search).get('token');
+  if (q) { localStorage.setItem('sl.op', q); OP_TOKEN = q; }
+  else OP_TOKEN = localStorage.getItem('sl.op') || '';
+} catch { /* 隐私模式 */ }
+
+const api = async (m, p, b) => {
+  const init = { method: m, headers: {} };
+  if (OP_TOKEN) init.headers['X-Operator-Token'] = OP_TOKEN;
+  if (b) { init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(b); }
+  const r = await fetch(p, init);
+  const j = await r.json();
+  if (!j.ok) {
+    // 令牌缺失/不对时给一句**能照着做**的话，而不是把 401 原样抛出去
+    if (r.status === 401) {
+      throw new Error(j.error?.message ||
+        '这个动作需要操作者令牌 —— 请用启动服务时控制台打印的那条 /collect?token=… 链接打开本页。');
+    }
+    throw new Error(j.error?.message || '请求失败');
+  }
+  return j.data;
+};
+
+let SINGER = null, TAKES = [], stream = null, ac = null, proc = null, chunks = [], recStart = 0, timerId = null;
+const SR = 48000;   // 采集用设备默认率，服务端会重采样到 22050
+
+// ── ① 登记 ──
+$('btnReg').onclick = async () => {
+  const g = val('gender'), e = val('exp').trim(), c = val('consent');
+  if (!g) return show('regMsg', 'bad', '请选择性别 —— 分层检查需要它');
+  if (!e) return show('regMsg', 'bad', '请填演唱经验 —— 这是最重要的协变量');
+  if (!c) return show('regMsg', 'bad', '请选择同意方式');
+  try {
+    const d = await api('POST', '/api/experiment/singer', {
+      singer_id: val('sid').trim() || undefined,
+      gender: g, voice_part: val('part'), experience: e,
+      age_band: val('age'), device: val('device'),
+      consent: c, note: val('note'),
+    });
+    SINGER = d.singer_id;
+    $('whoami').textContent = '· ' + SINGER;
+    show('regMsg', 'ok', `已登记：<b>${SINGER}</b>。接着启用麦克风。`);
+    $('c1').classList.add('done'); $('c2').classList.remove('off');
+  } catch (err) { show('regMsg', 'bad', err.message); }
+};
+
+$('btnMic').onclick = async () => {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+    });
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    const src = ac.createMediaStreamSource(stream);
+    proc = ac.createScriptProcessor(4096, 1, 1);
+    proc.onaudioprocess = ev => {
+      const buf = ev.inputBuffer.getChannelData(0);
+      // 电平表
+      let s = 0; for (let i = 0; i < buf.length; i += 8) s += buf[i] * buf[i];
+      const rms = Math.sqrt(s / (buf.length / 8));
+      const pct = Math.min(100, rms * 320);
+      $('lvl').style.width = pct + '%';
+      const m = $('lvl').parentElement;
+      m.className = 'meter' + (pct > 82 ? ' bad' : pct < 18 ? ' warn' : '');
+      $('lvlHint').textContent = pct > 82 ? '太大了，离远一点或降低麦克风增益'
+                            : pct < 18 ? '太小了，靠近一点'
+                            : '音量合适 ✓';
+      if (REC) chunks.push(new Float32Array(buf));
+    };
+    src.connect(proc); proc.connect(ac.destination);
+    show('micMsg', 'ok', '麦克风已启用。先让演唱者说一句话，确认音量落在绿区。');
+    $('recArea').style.display = '';
+    $('btnMic').disabled = true;
+  } catch (e) {
+    show('micMsg', 'bad', '拿不到麦克风权限：' + e.message +
+      '（必须用 https 或 localhost 打开）');
+  }
+};
+
+let REC = false;
+$('btnRec').onclick = () => {
+  if (!REC) {
+    chunks = []; REC = true; recStart = performance.now();
+    $('btnRec').textContent = '■ 停止录音'; $('btnRec').style.background = '#1a1d21';
+    timerId = setInterval(() => {
+      const t = (performance.now() - recStart) / 1000;
+      $('timer').textContent = t.toFixed(1) + ' s';
+      if (t > 30) $('btnRec').click();      // 30 秒自动停，防止忘停
+    }, 100);
+  } else {
+    REC = false; clearInterval(timerId);
+    $('btnRec').textContent = '● 开始录音'; $('btnRec').style.background = '';
+    const dur = (performance.now() - recStart) / 1000;
+    $('timer').textContent = '';
+    if (dur < 3) return show('recMsg', 'bad', `太短了（${dur.toFixed(1)}s），至少唱 5 秒`);
+    const wav = encodeWav(chunks, ac ? ac.sampleRate : SR);
+    const take = { index: TAKES.length + 1, dur, blob: wav };
+    TAKES.push(take);
+    renderTakes();
+    show('recMsg', 'ok', `第 ${take.index} 遍录好了（${dur.toFixed(1)}s，${(wav.size/1024).toFixed(0)} KB）`);
+  }
+};
+
+function encodeWav(chunks, sr) {
+  let n = 0; chunks.forEach(c => n += c.length);
+  const buf = new ArrayBuffer(44 + n * 2), dv = new DataView(buf);
+  const ws = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+  ws(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); ws(8, 'WAVEfmt ');
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, sr, true); dv.setUint32(28, sr * 2, true);
+  dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); ws(36, 'data');
+  dv.setUint32(40, n * 2, true);
+  let o = 44;
+  for (const c of chunks) for (let i = 0; i < c.length; i++, o += 2) {
+    const v = Math.max(-1, Math.min(1, c[i]));
+    dv.setInt16(o, v < 0 ? v * 0x8000 : v * 0x7FFF, true);
+  }
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
+function renderTakes() {
+  $('takes').innerHTML = TAKES.map(t =>
+    `<div class="take ok"><b>第 ${t.index} 遍</b>
+      <div class="st">${t.dur.toFixed(1)} 秒 · ${(t.blob.size/1024).toFixed(0)} KB</div>
+      <audio controls src="${URL.createObjectURL(t.blob)}" style="width:100%;margin-top:8px;height:32px"></audio>
+    </div>`).join('');
+  $('submitArea').hidden = TAKES.length < 1;
+  $('btnSubmit').textContent = `提交这 ${TAKES.length} 遍并分析`;
+}
+
+// ── ③ 提交 ──
+$('btnSubmit').onclick = async () => {
+  if (!SINGER) return show('recMsg', 'bad', '还没登记演唱者');
+  $('btnSubmit').disabled = true;
+  const out = [];
+  try {
+    for (let i = 0; i < TAKES.length; i++) {
+      show('recMsg', 'info', `正在上传并分析第 ${i + 1}/${TAKES.length} 遍…（每遍约 5 秒）`);
+      const fd = new FormData();
+      fd.append('file', TAKES[i].blob, `take${i + 1}.wav`);
+      /* ★ 必须带 `save_as`，否则**分析完就把音频丢了**（2026-09-24 修）。
+         原来这里只上传、不带 save_as ⇒ 服务端只分析不落盘，而下面又把
+         `${SINGER}_take${i+1}.wav` 当成 `wav_path` 登记进库 ⇒
+         盲评池里有一条录音、评分者点开却是**放不出声音**的播放器。
+         （`pool = [r for r in recs if r["wav_path"]]` 只看字段非空，
+           根本不知道文件在不在。）
+         `saved_as` 是服务端回的**实际**文件名：同名时它会加 -2/-3 后缀
+         （不再静默覆盖），所以登记的路径必须用它，而不是我们猜的那个名字。 */
+      const want = `${SINGER}_take${i + 1}`;
+      const up = await (await fetch(
+        `/api/upload?singer_id=${SINGER}&reference_id=REF_TWINKLE_1`
+        + `&save_as=${encodeURIComponent(want)}`, { method: 'POST', body: fd })).json();
+      if (!up.ok) throw new Error(`第 ${i + 1} 遍上传失败：${up.error?.message}`);
+      const uid = up.data.session_uid;
+      let st = null;
+      for (let k = 0; k < 200; k++) {
+        st = await api('GET', `/api/session/${uid}/status`);
+        if (['SCORED', 'FAILED'].includes(st.status)) break;
+        await new Promise(r => setTimeout(r, 300));
+      }
+      if (st.status !== 'SCORED') throw new Error(`第 ${i + 1} 遍分析失败：${st.error?.message || st.status}`);
+      const rep = await api('GET', `/api/session/${uid}/report`);
+      await api('POST', '/api/experiment/recording', {
+        singer_id: SINGER, session_uid: uid, take_index: i + 1, mode: 'A',
+        condition: (document.getElementById('condition').value || null),
+        reference_id: 'REF_TWINKLE_1', duration_ms: rep.meta.duration_ms,
+        wav_path: up.data.saved_as || `${want}.wav`,
+        total: rep.total, pitch_score: rep.pitch.score, rhythm_score: rep.rhythm.score,
+        expr_score: rep.expressiveness.score,
+        ...rep.expressiveness, metrics_excluded: rep.metrics_excluded,
+        pitch_offset_semitones: rep.meta.pitch_offset_semitones,
+      });
+      out.push(rep);
+    }
+    // 保存音频到实验目录（服务端 upload 已实现；这里只提示人工备份）
+    $('c2').classList.add('done'); $('c3').classList.remove('off');
+    renderResults(out);
+    show('recMsg', 'ok', `全部完成 —— ${TAKES.length} 遍已入库。可以请下一位了。`);
+  } catch (err) {
+    show('recMsg', 'bad', err.message);
+  } finally { $('btnSubmit').disabled = false; }
+};
+
+function renderResults(reps) {
+  const r = reps[0];
+  $('results').innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:14px">
+      <div class="score">${r.total ?? '—'}</div>
+      <div style="color:var(--ink2);font-size:13px">总分（共 ${reps.length} 遍）</div>
+    </div>
+    <div class="kv">
+      <div><s>音准</s><b>${r.pitch.score ?? '未评估'}</b></div>
+      <div><s>节奏</s><b>${r.rhythm.score ?? '未评估'}</b></div>
+      <div><s>表现力</s><b>${r.expressiveness.score ?? '未评估'}</b></div>
+    </div>
+    <table><tr><th>六指标</th>${reps.map((_, i) => `<th>第 ${i + 1} 遍</th>`).join('')}</tr>
+    ${[['力度动态范围','dynamic_range','dB'],['乐句力度起伏','phrase_dynamics','dB'],
+       ['速度弹性','rubato',''],['颤音速率','vibrato_rate','Hz'],['颤音深度','vibrato_depth','半音'],
+       ['起音方式','onset_style','ms'],['音色明亮度','brightness','Hz']]
+      .map(([n, k, u]) => `<tr><td>${n}</td>${reps.map(x => {
+        const v = x.expressiveness[k];
+        return `<td>${v === null || v === undefined ? '<span style="color:var(--ink3)">未评估</span>' : v.toFixed(2) + ' ' + u}</td>`;
+      }).join('')}</tr>`).join('')}
+    </table>
+    <div class="hint" style="margin-top:10px">
+      「未评估」表示该指标本次算不出来（例如音符太短测不出颤音）——
+      <b>这是正常结果，不是 0 分</b>。</div>
+    <div class="msg warn" style="margin-top:14px">
+      <b>⚠️ 记得手动备份音频。</b>请把刚才录的 3 个 wav 另存到
+      <span class="mono">data/recordings/exp/</span>，命名
+      <span class="mono">${SINGER}_take1.wav</span> 等 ——
+      盲评页面要靠它们播放。
+    </div>`;
+}
+
+function show(id, cls, html) {
+  $(id).innerHTML = `<div class="msg ${cls}">${html}</div>`;
+}
+</script>
+</body>
+</html>

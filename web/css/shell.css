@@ -1,0 +1,1638 @@
+/* SingLens · 壳样式
+ * 逐字搬自 docs/mockups/ui_mockup_v7_ljfh.html（v7 离解复合）
+ * 字体路径已由 fonts/ 改为 /fonts/（见 tools/split_v7.py 注释）
+ */
+/* ---- 本地字体（Outfit，与 v4 同一套；共 70 KB，离线可用）---- */
+@font-face{font-family:'Outfit';font-style:normal;font-weight:400;font-display:swap;src:url('/fonts/outfit-400.woff2') format('woff2')}
+@font-face{font-family:'Outfit';font-style:normal;font-weight:500;font-display:swap;src:url('/fonts/outfit-500.woff2') format('woff2')}
+@font-face{font-family:'Outfit';font-style:normal;font-weight:600;font-display:swap;src:url('/fonts/outfit-600.woff2') format('woff2')}
+@font-face{font-family:'Outfit';font-style:normal;font-weight:700;font-display:swap;src:url('/fonts/outfit-700.woff2') format('woff2')}
+@font-face{font-family:'Outfit';font-style:normal;font-weight:800;font-display:swap;src:url('/fonts/outfit-800.woff2') format('woff2')}
+
+/* ---- 中文标题字体：得意黑 Smiley Sans ----
+   SIL OFL 1.1（Copyright 2022 atelierAnchor，与 Outfit 同一许可，见 fonts/smiley-OFL.txt）
+   子集化到本页实际用到的 592 个汉字 + ASCII/标点，85.5 KB（原 2.51 MB，压缩 30×）。
+   为什么只给标题用：
+     · 它是【单字重斜体】，是 display 字体，长正文和小字可读性会下降（对比稿实测）
+     · 而正文原来的问题不是字体难看，是【微软雅黑没有 800 字重 →
+       浏览器伪造加粗 → 大字号下笔画发糊】。标题换掉就解决了。
+   数字与英文仍走 Outfit（排在前面的 'Outfit' 先命中）。 */
+@font-face{font-family:'SmileySub';font-style:normal;font-display:swap;src:url('/fonts/smiley-subset.woff2') format('woff2')}
+
+/* ============================================================
+   v7 设计语言 —— ignoredone 骨架 × 离解复合工业感（高对比红黑白）
+   与 v6（众生行记）的差异：
+     · 配色：冷灰蓝白 → 灰白底 + 纯黑 + 离解红强调 + 青绿点缀
+     · 母题：瞄准镜圆环 → 破碎几何切片 + 对角引导线 + 红色菱形
+     · 标题：超粗黑体 900 + 空心描边 + 红色错位重影
+     · 动效：卡片 clip-path 快速切入，幽灵编号故障抖动
+     · 底部跑马灯反转为纯黑条
+   ============================================================ */
+:root{
+  --bg:#eae9e5;        /* 暖纸灰 */
+  --panel:#ffffff;
+  --ink:#101012;
+  --ink2:#3d3d40;
+  --ink3:#8f8c88;
+  --ink4:#c6c4bf;
+  --line:#dbd9d4;
+  --line2:#c6c4bf;
+  --acc:#c93a2a;       /* 离解朱红（降饱和版，更沉稳） */
+  --acc-ink:#93241a;
+  --warn:#c93a2a;
+  --good:#0d7561;      /* 青绿点缀 */
+  --mono:"JetBrains Mono","Cascadia Mono",Consolas,monospace;
+  --ease:cubic-bezier(.22,.61,.36,1);   /* ignoredone 入场曲线 */
+}
+*{box-sizing:border-box;margin:0;padding:0}
+/* ★ 2026-10-18：`hidden` 属性必须真的隐藏。
+   踩过的坑：`.practice{display:grid}` 覆盖了 `[hidden]` 的 UA 样式，
+   于是**没开始练习**时 s2 的实时面板整块显示出来（高 955px），
+   里面还写着「正在录」。一条全局规则比在每个组件上补 `[hidden]` 可靠。 */
+[hidden]{display:none !important}
+html{overflow-x:hidden}
+body{
+  background:var(--bg);color:var(--ink);min-height:100vh;
+  font-family:"Outfit","Noto Sans SC","PingFang SC","Microsoft YaHei","Segoe UI",system-ui,sans-serif;
+  font-size:14px;line-height:1.6;
+  padding-bottom:120px;
+  /* 手机顶部导航本身可横向滚动；页面不要因此出现 1px 级横向溢出。 */
+  overflow-x:clip;
+}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* ── 中文标题字体（得意黑）───────────────────────────────
+   只给【大号中文标题】用。正文/小字仍走系统字体 —— 对比稿实测
+   得意黑在 13.5px 及以下可读性下降（它只有斜体一个字重）。
+   数字与英文因 'Outfit' 排在前面，仍走 Outfit。 */
+.head h1,
+.stylecard h4,
+.hero-cn{
+  font-family:"Outfit","SmileySub","Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+}
+/* 标题不再需要伪粗体 —— 得意黑本身够黑。写 800 会被浏览器再加一层合成加粗。 */
+.head h1{font-weight:400}
+.stylecard h4{font-weight:400}
+
+/* ---------- 技术标注系统 ---------- */
+.eyebrow{
+  display:flex;align-items:center;gap:9px;
+  font-family:var(--mono);font-size:11px;letter-spacing:.24em;text-transform:uppercase;
+  color:var(--ink3);font-weight:500;
+}
+.eyebrow .ast{width:12px;height:12px;color:var(--acc);flex:none}   /* 离解复合：红色菱形标记 */
+
+/* ---------- 布局骨架 ---------- */
+.shell{display:grid;grid-template-columns:200px 1fr;max-width:1460px;margin:0 auto;min-height:100vh}
+/* ★ 2026-10-20：侧栏内容宽度从 120px 放回 ~156px。
+   原来是 200 − padding-left 36 − margin-right 44 = 120px，
+   于是「SINGER · 当前演唱者」和 meta 的英文每一行都折成两段
+   （截图里像被裁过）。缩进少一点，排版立刻正常。 */
+aside{padding:56px 0 40px 24px;border-right:1px solid var(--line);margin-right:18px}
+aside .logo{display:flex;align-items:center;gap:11px;margin-bottom:46px}
+aside .logo .sq{
+  width:26px;height:26px;background:var(--acc);color:#fff;display:grid;place-items:center;
+  font-weight:800;font-size:13px;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%);
+}
+aside .logo b{font-size:14px;letter-spacing:.06em}
+aside .logo .ver{font-family:var(--mono);font-size:9px;color:var(--ink4);letter-spacing:.18em;margin-top:2px}
+aside nav{display:flex;flex-direction:column;gap:2px}
+aside nav button{
+  background:none;border:0;font:inherit;font-size:13px;color:var(--ink3);
+  text-align:left;padding:8px 0 8px 16px;cursor:pointer;transition:.15s;letter-spacing:.02em;
+  position:relative;display:flex;align-items:baseline;gap:9px;
+}
+aside nav button .no{font-family:var(--mono);font-size:9px;color:var(--ink4);letter-spacing:.1em;transition:.15s}
+aside nav button::before{
+  content:"";position:absolute;left:0;top:50%;width:3px;height:0;background:var(--acc);
+  transition:.18s;transform:translateY(-50%);
+}
+aside nav button:hover{color:var(--ink)}
+aside nav button.on{color:var(--ink);font-weight:600}
+aside nav button.on::before{height:16px}
+aside nav button.on .no{color:var(--acc)}
+aside .meta{
+  margin-top:48px;padding-top:18px;border-top:1px solid var(--line);
+  font-family:var(--mono);font-size:9.5px;color:var(--ink2);line-height:2;
+  letter-spacing:.08em;text-transform:uppercase;overflow-wrap:anywhere;
+}
+/* 众生行记式 ASCII 字符表：8 列小格子 */
+aside .meta .ascii{display:grid;grid-template-columns:repeat(8,1fr);gap:1px;margin-top:16px;
+  border:1px solid var(--line);background:var(--line);max-width:168px}
+aside .meta .ascii span{background:var(--bg);display:grid;place-items:center;aspect-ratio:1;
+  font-size:9px;letter-spacing:0;color:var(--ink3);line-height:1}
+
+main{padding:56px 48px 40px 0;min-width:0}
+.screen{display:none}
+.screen.on{display:block;animation:fade .28s ease}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+
+/* ============================================================
+   落地页 vs 工具页的常驻装饰（2026-10-18）
+   ------------------------------------------------------------
+   s1 是落地页：跑马灯、底部胶囊、右侧竖排 rail 都留着（识别度）。
+   s2–s8 是工具页：它们只占视口、盖内容，而且胶囊和侧栏/顶栏是重复导航。
+   运行时由 shell.js 的 markScreen() 写 body[data-screen]。
+   ============================================================ */
+body:not([data-screen="s1"]){padding-bottom:52px}
+/* 跑马灯是全局品牌/状态条：工具页也保留；只有进入实时练习时收起，
+   避免录音页面被底部动画分心（见 body.in-practice 规则）。 */
+body:not([data-screen="s1"]) .rail,
+body:not([data-screen="s1"]) .dock{display:none !important}
+
+/* ---------- 大标题区：星号 + 实心/空心行 + 幽灵编号 + 刻度尺 ---------- */
+.head{position:relative;margin-bottom:38px}
+.head .ghost{
+  position:absolute;right:0;top:-30px;z-index:0;pointer-events:none;user-select:none;
+  font-family:var(--mono);font-size:150px;font-weight:700;line-height:1;letter-spacing:-.04em;
+  color:transparent;-webkit-text-stroke:2px var(--line2);opacity:.55;
+  filter:drop-shadow(4px 4px 0 rgba(201,58,42,.30));   /* 红色错位重影 */
+}
+.head h1{
+  position:relative;z-index:1;
+  font-size:60px;font-weight:800;letter-spacing:-.02em;line-height:1.1;margin-top:18px;
+}
+.head h1 .hollow{color:transparent;-webkit-text-stroke:1.6px var(--ink)}
+.head h1::first-line{text-shadow:6px 6px 0 rgba(201,58,42,.14)}   /* 标题红色错位叠印 */
+.head .sub{font-size:14px;color:var(--ink2);margin-top:20px;max-width:580px;line-height:1.95}
+.head .flex{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap}
+
+/* ── 非 s1 屏：紧凑页头（2026-10-18 版面重排）───────────────
+   s1 是落地页，保留海报；s2–s8 是工具页，报头从 210–304px 压到 ~120px，
+   把首屏还给内容。不是把标题删掉 —— 字号、空心字、红色错印都保留，
+   只是从"海报标题"变成"页面标题"。 */
+#s2 .head,#s3 .head,#s4 .head,#s5 .head,#s6 .head,#s7 .head,#s8 .head{
+  margin-bottom:22px;
+}
+#s2 .head .ghost,#s3 .head .ghost,#s4 .head .ghost,#s5 .head .ghost,
+#s6 .head .ghost,#s7 .head .ghost,#s8 .head .ghost{display:none}
+#s2 .head h1,#s3 .head h1,#s4 .head h1,#s5 .head h1,
+#s6 .head h1,#s7 .head h1,#s8 .head h1{
+  font-size:38px;line-height:1.08;margin-top:6px;letter-spacing:-.02em;
+}
+/* 60px 海报标题上的红色错位叠印，到 38px 工具标题就变成"看起来重影"；
+   s1 保留，工具页去掉。 */
+#s2 .head h1::first-line,#s3 .head h1::first-line,#s4 .head h1::first-line,
+#s5 .head h1::first-line,#s6 .head h1::first-line,#s7 .head h1::first-line,
+#s8 .head h1::first-line{text-shadow:none}
+/* 60px 时"空心字"是海报语言；到 38px 工具标题，1.6px 的描边会把字吃掉，
+   远看像双重影。s1 保留空心，s2–s8 用实心。 */
+#s2 .head h1 .hollow,#s3 .head h1 .hollow,#s4 .head h1 .hollow,
+#s5 .head h1 .hollow,#s6 .head h1 .hollow,#s7 .head h1 .hollow,
+#s8 .head h1 .hollow{color:var(--ink);-webkit-text-stroke:0}
+#s2 .head h1 br,#s3 .head h1 br,#s4 .head h1 br,#s5 .head h1 br,
+#s6 .head h1 br,#s7 .head h1 br,#s8 .head h1 br{display:none}
+#s2 .head .sub,#s3 .head .sub,#s4 .head .sub,#s5 .head .sub,
+#s6 .head .sub,#s7 .head .sub,#s8 .head .sub{
+  font-size:13px;margin-top:8px;max-width:820px;line-height:1.7;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+#s2 .head .ruler,#s3 .head .ruler,#s4 .head .ruler,#s5 .head .ruler,
+#s6 .head .ruler,#s7 .head .ruler,#s8 .head .ruler{display:none}
+#s2 .head .ruler-lbl,#s3 .head .ruler-lbl,#s4 .head .ruler-lbl,
+#s5 .head .ruler-lbl,#s6 .head .ruler-lbl,#s7 .head .ruler-lbl,
+#s8 .head .ruler-lbl{
+  font-size:10.5px;color:var(--ink2);letter-spacing:.14em;margin-top:6px;
+}
+#s3 .head .flex{ align-items:center; }
+
+/* 1366×768 / 投影：s1 的报头也收一点，别让 4 张模式卡全在折叠线以下。
+   s1 仍是海报，只是"短屏幕上的海报"。 */
+@media (max-height:820px) and (min-width:1181px){
+  #s1 .head{margin-bottom:20px}
+  #s1 .head h1{font-size:46px;line-height:1.06;margin-top:10px}
+  #s1 .head .sub{font-size:13px;margin-top:10px;line-height:1.7}
+  #s1 .head .ruler{margin-top:14px}
+  /* 1366×768 投影：四张卡并排，C/D 才不会只在折叠线以下露个顶。
+     代价是每张卡窄了 —— 隐藏"戴耳机"补充块、说明限 4 行。 */
+  #s1 .modes{grid-template-columns:repeat(4,1fr);gap:10px}
+  #s1 .mode{padding:16px 16px 0}
+  #s1 .mode .hp{display:none}
+  #s1 .mode h4{font-size:18px;margin:12px 0 8px}
+  #s1 .mode p{font-size:11.5px;line-height:1.65;
+    display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+  #s1 .mode .foot{margin:12px -16px 0;padding:9px 16px;font-size:8.5px}
+  #s1 .mode .foot .go{font-size:11px}
+}
+
+/* ★ 2026-10-20：这条"刻度尺"原来是一条 16px 高、左端 56px 实心的黑条，
+   截图里读起来像一条**被涂黑的加载条**（审查报告也点了名）。
+   改成"一条基线 + 细刻度"：高度 8px，左端只留 36px × 2px 的起笔，
+   远看是标尺，不再像进度条。 */
+.ruler{position:relative;height:8px;margin-top:22px;max-width:560px;
+  background:repeating-linear-gradient(90deg,var(--line2) 0 1px,transparent 1px 10px);
+  -webkit-mask-image:linear-gradient(90deg,#000 0%,#000 72%,transparent 100%);
+          mask-image:linear-gradient(90deg,#000 0%,#000 72%,transparent 100%);
+}
+.ruler::before{content:"";position:absolute;left:0;bottom:0;width:36px;height:2px;background:var(--ink)}
+.ruler + .ruler-lbl{font-family:var(--mono);font-size:9px;letter-spacing:.22em;color:var(--ink4);margin-top:7px;text-transform:uppercase}
+
+/* ---------- 卡片：直角 + 发丝线 + 角框 ---------- */
+.card{background:var(--panel);border:1px solid var(--line);padding:24px 26px;position:relative}
+.card h3{display:flex;align-items:baseline;gap:12px;margin-bottom:20px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.card h3 .t{font-size:15px;font-weight:700}
+.card h3 .e{font-family:var(--mono);font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink4)}
+.card h3 .e::before{content:"// "}
+
+/* ── 「本次未评估」样式（2026-09-18 补）──────────────────────
+   契约 §3.2：null 表示"本次未评估"，**绝不能用 0 代替**。
+   用 0 的后果：用户会读成"我颤音唱得极差"，而真相是我们根本没测。
+   视觉上用【斜纹底】做统一标记 —— 一眼扫过去就能分辨，
+   不用读字。这是"未评估"和"已评估"唯一的区别。 */
+.na{
+  background:repeating-linear-gradient(45deg,transparent 0 5px,rgba(16,16,18,.05) 5px 10px);
+  border:1px dashed var(--line2);
+}
+.na .na-t{font-size:12.5px;font-weight:600;color:var(--ink3);display:block;margin-bottom:3px}
+.na .na-w{font-size:10.5px;color:var(--ink4);line-height:1.5;display:block}
+/* 降级横幅：唱的和参考对不上时，告诉用户【为什么】没评 */
+.deg{
+  border-left:3px solid var(--acc);background:#fbf6f5;padding:12px 14px;
+  font-size:12.5px;line-height:1.75;color:var(--acc-ink);margin-top:12px;
+}
+.deg .dg-h{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;
+           color:var(--ink3);display:block;margin-bottom:5px}
+.deg b{font-weight:700}
+.card.tick::before{
+  content:"";position:absolute;left:-1px;top:-1px;width:14px;height:14px;pointer-events:none;
+  border-left:2px solid var(--ink);border-top:2px solid var(--ink);
+}
+
+/* ---------- 按钮：pill = ignoredone，直角描边 = 次级 ---------- */
+.btn{
+  font:inherit;font-size:13px;padding:10px 22px;border-radius:999px;cursor:pointer;
+  border:1px solid var(--line2);background:var(--panel);color:var(--ink);
+  transition:.18s;display:inline-flex;align-items:center;gap:8px;letter-spacing:.02em;
+}
+.btn:hover{border-color:var(--ink)}
+.btn.dark{background:var(--ink);border-color:var(--ink);color:#fff;font-weight:600;padding:12px 26px}
+.btn.dark:hover{background:#000;transform:translate(-1px,-2px);box-shadow:5px 5px 0 rgba(201,58,42,.9)}
+.btn.danger{color:var(--warn);border-color:#f2c4b5}
+.btn.danger:hover{border-color:var(--warn)}
+.btn .ic{width:15px;height:15px}
+/* 图标符号的 path 本身没写 fill/stroke：不补这一条，pause / check 这类
+   线稿图标会渲染成空（2026-10-18 截图里暂停键就是一个空圆）。
+   实心符号（record / diamond / star）自己有 fill，不受影响。 */
+.ic{fill:none;stroke:currentColor;stroke-width:1.9;
+    stroke-linecap:round;stroke-linejoin:round}
+
+/* ---------- 提示条 gate：直角 + 左侧色条 ---------- */
+.gate{
+  display:flex;align-items:center;gap:16px;padding:16px 20px;margin-bottom:20px;
+  background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--warn);
+}
+.gate.ok{border-left-color:var(--good)}
+.gate.bad{border-left-color:var(--acc-ink)}
+.gate .mk{color:var(--warn);line-height:1;display:flex}
+.gate.ok .mk{color:var(--good)}
+.gate.bad .mk{color:var(--acc-ink)}
+.gate .tx{flex:1;font-size:13px;color:var(--ink2);line-height:1.85}
+.gate .tx b{color:var(--ink)}
+.gate .code{font-family:var(--mono);font-size:9.5px;color:var(--ink4);letter-spacing:.16em;white-space:nowrap}
+
+/* ---------- 右侧竖排技术栏 ---------- */
+.rail{
+  position:fixed;right:0;top:0;bottom:0;width:30px;z-index:40;pointer-events:none;
+  border-left:1px solid var(--line);background:var(--bg);
+  display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:20px 0;
+}
+.rail span{writing-mode:vertical-rl;font-family:var(--mono);font-size:8.5px;letter-spacing:.34em;color:var(--ink3);text-transform:uppercase}
+.rail .sq{width:6px;height:6px;background:var(--ink)}
+
+/* ---------- ignoredone 原版展开式导航胶囊 ----------
+   参数照抄 learningproject.html：blur(13px)、rgba(245,245,245,.25)、
+   内嵌白高光 inset 0 0 2px 1px rgba(255,255,255,.75)、展开 max-width 550px、
+   主按钮展开后隐藏、左右圆形箭头、边缘渐隐遮罩、hover 时其他项变淡 */
+.dock{position:fixed;left:50%;bottom:44px;z-index:60;transform:translateX(-50%);animation:dockin .6s var(--ease) .35s both}
+@keyframes dockin{from{opacity:0;transform:translate(-50%,18px)}to{opacity:1;transform:translate(-50%,0)}}
+.dock-inner{
+  display:flex;align-items:center;gap:15px;height:55px;padding:0 16px;min-width:110px;
+  border-radius:999px;overflow:hidden;position:relative;
+  background:rgba(245,245,245,.25);
+  -webkit-backdrop-filter:blur(13px);backdrop-filter:blur(13px);
+  box-shadow:0 12px 40px rgba(0,0,0,.2), inset 0 0 2px 1px rgba(255,255,255,.75);
+  max-width:150px;transition:max-width .45s var(--ease);
+}
+.dock-inner.open{max-width:640px}
+.dock-main{
+  all:unset;display:flex;align-items:center;gap:45px;padding:0 4px;height:100%;
+  font-size:15px;font-weight:500;letter-spacing:.02em;color:#101012;cursor:pointer;white-space:nowrap;
+}
+.dock-main svg{width:17px;height:17px;color:var(--acc);animation:spin 14s linear infinite;transform-box:fill-box;transform-origin:center}
+.dock-inner.open .dock-main{display:none}
+.dock-scroll{
+  display:none;flex:1;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;
+  scroll-behavior:smooth;margin:0 30px;overscroll-behavior:contain;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent);
+          mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent);
+}
+.dock-scroll::-webkit-scrollbar{display:none}
+.dock-inner.open .dock-scroll{display:flex}
+.dock-page{display:flex;gap:10px;align-items:center;padding:0 12px}
+.dock-page button{
+  all:unset;flex:none;padding:8px 12px;font-size:13px;color:#333;background:rgba(227,227,227,.6);
+  border-radius:999px;white-space:nowrap;cursor:pointer;
+  transition:background-color .25s var(--ease),color .25s var(--ease),opacity .25s var(--ease),transform .25s var(--ease);
+}
+.dock-page:hover button{opacity:.55}
+.dock-page button:hover{opacity:1;background:#101012;color:#fff;transform:translateY(-1px)}
+.dock-page button.on{background:#101012;color:#fff;font-weight:500;opacity:1}
+.dock-arrow{
+  position:absolute;top:50%;transform:translateY(-50%);width:28px;height:28px;border-radius:50%;
+  border:0;background:rgba(255,255,255,.25);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;z-index:2;opacity:0;visibility:hidden;transition:all .2s ease;
+}
+.dock-inner.open .dock-arrow{opacity:.85;visibility:visible}
+.dock-arrow:hover{opacity:1;background:rgba(255,255,255,.75)}
+.dock-arrow.left{left:15px}.dock-arrow.right{right:15px}
+.dock-arrow svg{width:14px;height:14px;fill:#333}
+
+/* ---------- 背景层：工程网格 + 噪点 + 破碎几何 + 大英文贴板 ---------- */
+.bgfx{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden}
+.bgfx::before{
+  content:"";position:absolute;inset:0;
+  background:
+    repeating-linear-gradient(0deg,rgba(16,16,18,.075) 0 1.5px,transparent 1.5px 72px),
+    repeating-linear-gradient(90deg,rgba(16,16,18,.075) 0 1.5px,transparent 1.5px 72px);
+}
+/* 竖排大英文（参考吊牌：PROVIDENT 竖排贴板） */
+.bgfx .word-v{
+  position:absolute;writing-mode:vertical-rl;white-space:nowrap;
+  font-family:'Outfit',sans-serif;font-weight:800;font-size:118px;line-height:.95;letter-spacing:.02em;
+  color:rgba(16,16,18,.062);
+}
+/* 超大裁切字母，出血到视口外 */
+.bgfx .word-big{
+  position:absolute;font-family:'Outfit',sans-serif;font-weight:800;letter-spacing:-.05em;
+  font-size:46vw;line-height:.8;color:rgba(16,16,18,.035);
+}
+/* 吊牌式小标签 + 角括号 */
+.bgfx .tag{position:absolute;font-family:var(--mono);font-size:9px;letter-spacing:.26em;
+  color:rgba(16,16,18,.38);text-transform:uppercase}
+.bgfx .corner{position:absolute;width:18px;height:18px;border:0 solid rgba(16,16,18,.30)}
+.bgfx .corner.tl{border-left-width:1.5px;border-top-width:1.5px}
+.bgfx .corner.br{border-right-width:1.5px;border-bottom-width:1.5px}
+.bgfx::after{
+  content:"";position:absolute;inset:0;opacity:.035;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/></filter><rect width='140' height='140' filter='url(%23n)'/></svg>");
+}
+.bgfx .mark{position:absolute;color:var(--ink3)}
+.bgfx .mark.spin{animation:spin 26s linear infinite;transform-box:fill-box;transform-origin:center}
+.bgfx .mark.spin-r{animation:spinr 34s linear infinite;transform-box:fill-box;transform-origin:center}
+.bgfx .mark.float{animation:floaty 9s ease-in-out infinite alternate}
+.bgfx .mark text{font-family:var(--mono)}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes spinr{to{transform:rotate(-360deg)}}
+@keyframes floaty{from{transform:translateY(0)}to{transform:translateY(-14px)}}
+.bgfx .coord2{
+  position:absolute;font-family:var(--mono);font-size:8.5px;letter-spacing:.24em;
+  color:var(--ink4);text-transform:uppercase;line-height:2;
+}
+/* 离解复合：破碎几何切片 + 对角引导线 */
+.bgfx .shard{position:absolute;display:block;background:rgba(10,10,11,.055)}
+.bgfx .shard.red{background:rgba(201,58,42,.85)}
+.bgfx .shard.thin{background:rgba(10,10,11,.14)}
+.bgfx .diag{position:absolute;width:70vmax;height:1px;background:rgba(10,10,11,.08);transform:rotate(-28deg);transform-origin:0 0}
+.bgfx .diag.rev{transform:rotate(24deg);transform-origin:100% 0}
+
+/* ---------- 底部跑马灯 ---------- */
+.mq{
+  position:fixed;left:0;right:30px;bottom:0;height:30px;z-index:50;overflow:hidden;
+  display:flex;align-items:center;border-top:1px solid #000;
+  background:#0a0a0b;
+}
+.mq-in{
+  flex:none;display:flex;white-space:nowrap;animation:mq 46s linear infinite;
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.24em;color:#b9bab6;text-transform:uppercase;
+}
+.mq-in span{padding:0 26px;flex:none;display:flex;align-items:center;gap:10px}
+.mq-in .st{width:8px;height:8px;color:var(--acc);flex:none;animation:spin 10s linear infinite;transform-box:fill-box;transform-origin:center}
+@keyframes mq{to{transform:translateX(-50%)}}
+
+/* ---------- 切屏入场：分件 staggered ---------- */
+.screen.on .head .eyebrow{animation:rise .5s var(--ease) both}
+.screen.on .head h1{animation:rise .6s var(--ease) .06s both}
+.screen.on .head .sub{animation:rise .6s var(--ease) .12s both}
+.screen.on .head .ruler,.screen.on .head .ruler-lbl{animation:rise .5s var(--ease) .18s both}
+.screen.on .head .ghost{animation:ghostin .7s var(--ease) both,glitch 7s steps(1) 1.2s infinite}
+@keyframes rise{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
+@keyframes ghostin{from{opacity:0;transform:translateY(16px)}to{opacity:.55;transform:none}}
+/* 离解复合：幽灵编号故障抖动（大部分帧静止，瞬间错位后复位） */
+@keyframes glitch{
+  0%,93%{transform:translate(0);opacity:.55}
+  94%{transform:translate(-4px,2px)}
+  95%{transform:translate(4px,-2px)}
+  96%{transform:translate(-2px,1px);opacity:.3}
+  97%,100%{transform:translate(0);opacity:.55}
+}
+
+/* ---------- 刻度尺扫描（众生行记仪器自检感）---------- */
+.ruler::after{content:"";position:absolute;bottom:0;left:0;width:44px;height:2px;background:var(--acc);opacity:0}
+.screen.on .ruler::after{animation:scan 1.15s var(--ease) .2s 1 both}
+@keyframes scan{0%{left:0;opacity:.85}100%{left:calc(100% - 44px);opacity:0}}
+
+/* ---------- 首页几何装饰动起来 ---------- */
+.geo .emblem{animation:spin 48s linear infinite;transform-box:fill-box;transform-origin:center}
+.geo .crosshair{animation:spin 16s linear infinite;transform-box:fill-box;transform-origin:center}
+.geo .crosshair.ch2{animation-direction:reverse;animation-duration:22s}
+
+/* ============================================================
+   01 · 模式选择
+   ============================================================ */
+.geo{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0}
+.geo .emblem{position:absolute;right:34px;top:-8px;width:190px;height:190px;color:var(--ink);opacity:.07}
+.geo .crosshair{position:absolute;color:var(--ink4)}
+.geo .crosshair.ch1{right:240px;top:52px;width:15px;height:15px}
+.geo .crosshair.ch2{right:52px;top:210px;width:11px;height:11px}
+.geo .coord{position:absolute;right:38px;top:196px;text-align:right;
+  font-family:var(--mono);font-size:9px;letter-spacing:.2em;color:var(--ink3);line-height:2;text-transform:uppercase}
+.geo .vtext{position:absolute;right:14px;top:30px;writing-mode:vertical-rl;
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.42em;color:var(--ink4);text-transform:uppercase}
+
+/* ⚠️ 原为 `repeat(3,1fr)`（v7 稿子只有 A/B/C 三条路）。
+   2026-10-10 加了第 4 条路（D · 导入 MIDI）之后，固定 3 列会把第 4 张
+   挤到第二行**只占第一列**，右边空出一大块 —— 看着像"没排完"。
+   实测截图确认过（`experiments/output/shots/midi_01_s1_four_routes.png`）。
+   改成 2×2：四张卡一样大、不留空洞，每条路的说明文字也更宽更好读。
+   ⚠️ `.modes` 全项目只有 s1 用（已 grep 确认），所以改这里不会波及别屏。
+   ⚠️ 这一行在 split_v7.py 的"生成区"里：**将来若真要重跑生成器，记得把这条改回去**
+      （生成器现在已不是真相源，见 views/s1.js 头部的说明）。 */
+.modes{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.mode{
+  background:var(--panel);border:1px solid var(--line);padding:24px 24px 0;cursor:pointer;
+  transition:border-color .18s,transform .18s,box-shadow .18s;position:relative;display:flex;flex-direction:column;
+}
+.mode::before{content:"";position:absolute;left:-1px;top:-1px;width:14px;height:14px;
+  border-left:2px solid transparent;border-top:2px solid transparent;transition:.18s}
+.mode:hover{border-color:var(--ink);transform:translateY(-3px);box-shadow:6px 6px 0 rgba(201,58,42,.9)}
+.mode:focus-visible{outline:2px solid var(--acc);outline-offset:3px}
+.mode:hover::before{border-color:var(--ink)}
+.mode .top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.mode .num{font-family:var(--mono);font-size:30px;font-weight:700;color:var(--ink);line-height:1;letter-spacing:-.02em}
+.mode .num small{font-size:11px;color:var(--ink4);font-weight:400;display:block;margin-top:5px;letter-spacing:.18em}
+.mode .rec{font-family:var(--mono);font-size:9px;letter-spacing:.14em;color:var(--acc-ink);
+  border:1px solid var(--acc);padding:4px 9px;text-transform:uppercase;white-space:nowrap}
+.mode h4{font-size:17.5px;margin:18px 0 10px;font-weight:700}
+.mode p{color:var(--ink2);font-size:12.5px;line-height:1.9;flex:1}
+/* 戴耳机 / 伴奏说明 —— 顶部一条细线分隔，左侧强调色竖条 */
+.mode .hp{margin-top:14px;padding:11px 0 0 12px;border-top:1px solid var(--line);
+  border-left:2px solid var(--acc);font-size:12px;line-height:1.85;
+  color:var(--ink2);flex:none;position:relative}
+.mode .hp .ast{width:9px;height:9px;color:var(--acc);margin-right:6px;flex:none;
+  display:inline-block;vertical-align:baseline}
+.mode .hp b{color:var(--ink)}
+.mode .hp .why{display:block;margin-top:5px;font-size:11px;color:var(--ink4);
+  font-family:var(--mono);letter-spacing:.02em;line-height:1.7}
+.mode .hp.warn{border-left-color:#c93a2a}
+.mode .hp.warn .ast{color:#c93a2a}
+.mode .hp.warn .why{color:#c93a2a;opacity:.85}
+.mode .foot{margin:20px -24px 0;padding:13px 24px;border-top:1px dashed var(--line2);
+  display:flex;justify-content:space-between;align-items:center;
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;color:var(--ink3);text-transform:uppercase}
+.mode .foot .go{color:var(--ink4);transition:.18s;font-size:13px}
+.mode:hover .foot .go{color:var(--ink);transform:translateX(4px)}
+.mode.hot{background:var(--ink);border-color:var(--ink);color:#fff}
+.mode.hot .num{color:#fff}
+.mode.hot .num small{color:#ffffff66}
+.mode.hot h4{color:#fff}
+.mode.hot p{color:#ffffffb3}
+.mode.hot .foot{border-top-color:#ffffff2e;color:#ffffff80}
+.mode.hot:hover{box-shadow:6px 6px 0 rgba(15,17,19,.22)}
+
+/* ============================================================
+   02 · 练习页
+   ============================================================ */
+.practice{display:grid;grid-template-columns:1.62fr 1fr;gap:14px;align-items:start}
+/* ★ 2026-10-18：cue 与 transport 都是**横跨两列**的条，不是普通 grid item。
+   不写这一条时，cue 会占掉第 1 行第 1 列，把两个 .stack 挤成
+   "图表在右、分数在左"（左列上方还空 900px）—— 审查实拍到的错位就是它。 */
+.practice > .cue,
+.practice > .transport{grid-column:1/-1}
+/* 走带常驻可见：它原来在左栏第 4 个卡片之后，1440×900 下 top=1216，
+   唱的时候根本够不着。放在 cue 之后 + sticky，滚到上方时仍留在视口顶。 */
+.practice > .transport{position:sticky;top:8px;z-index:8;margin:0 0 2px}
+/* 练习态：底部 dock 与跑马灯会盖住内容，而且此时用户只需要走带。 */
+body.in-practice .dock,
+body.in-practice .mq{display:none !important}
+body.in-practice main{padding-bottom:8px}
+.stack{display:flex;flex-direction:column;gap:14px}
+.chartwrap{border:1px solid var(--line);background:#fcfcfa;padding:8px}
+#live{height:190px;display:block;width:100%}
+#roll{height:118px;display:block;width:100%}
+.legend{display:flex;gap:18px;flex-wrap:wrap;margin-top:14px;font-size:11px;color:var(--ink3);
+  font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase}
+.legend em{display:inline-block;width:9px;height:9px;margin-right:6px;vertical-align:-1px}
+
+.strip{display:grid;grid-template-columns:repeat(20,1fr);gap:3px;height:54px}
+.strip i{cursor:pointer;transition:transform .15s}
+.strip i:hover{transform:scaleY(1.14)}
+
+.transport{
+  display:flex;align-items:center;gap:13px;background:var(--panel);border:1px solid var(--line);
+  padding:12px 18px;
+}
+.tprog{flex:1;height:3px;background:var(--line);position:relative}
+.tprog i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--ink)}
+/* ★ 删掉了原来写死的 `.tprog::after{left:39%}` —— 那是一个**永不移动**的
+   "播放头"，在 2 秒时会和真实进度（57%）对不上，看起来像卡住了。 */
+.tbtn2{
+  width:36px;height:36px;border-radius:50%;border:1px solid var(--line2);background:var(--panel);
+  color:var(--ink);cursor:pointer;display:grid;place-items:center;transition:.16s;flex:none;
+}
+.tbtn2:hover{border-color:var(--ink)}
+.tbtn2.rec{border-color:#f2c4b5;color:var(--warn)}
+.tbtn2.rec:hover{border-color:var(--warn)}
+.tbtn2.go{background:var(--ink);border-color:var(--ink);color:#fff}
+
+/* ── G13 逐段复听：问题片段行上的两个按钮 ─────────────────────────
+   为什么不用上面的 `.tbtn2`：它是 36px 的圆按钮（给工具栏用的），
+   塞进一行文字里会把行撑高、也和 `.tm` 的时间挤在一起。
+   这里要的是**文字按钮**：一眼看出是"听 / 练"，而不是一个图标。 */
+.pact{display:flex;gap:6px;flex:none}
+.pbtn{
+  font:inherit;font-size:11.5px;line-height:1;padding:7px 10px;
+  border:1px solid var(--line2);background:var(--panel);color:var(--ink2);
+  border-radius:3px;cursor:pointer;transition:.16s;white-space:nowrap;
+}
+.pbtn:hover{border-color:var(--ink);color:var(--ink)}
+.pbtn.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.pbtn:disabled{border-color:var(--line);color:var(--ink4);cursor:default}
+/* 时长（"1.8s"）—— 用户据此判断这一段值不值得单独练 */
+.problem .tm i{display:block;font-style:normal;margin-top:3px;color:var(--ink4)}
+/* 窄屏放不下就换行，别把文字挤成一列字 */
+@media (max-width:1100px){
+  .problem{flex-wrap:wrap;gap:10px}
+  .problem .tt{flex:1 1 100%;order:3}
+  .pact{order:2}
+}
+
+.mrow{display:flex;justify-content:space-between;align-items:baseline;font-size:12.5px;color:var(--ink2);margin-bottom:7px}
+.mrow .lb s{display:block;text-decoration:none;font-family:var(--mono);font-size:9px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--ink4);margin-top:3px}
+.mrow b{font-weight:700;color:var(--ink);font-size:14px}
+.bar{height:4px;background:var(--line)}
+.bar i{display:block;height:100%;background:var(--ink)}
+.bar i.acc{background:var(--acc)}
+.bar i.warn{background:var(--warn)}
+.bar i.dim{background:var(--ink4)}
+
+.now{background:var(--ink);color:#fff;padding:22px 26px;border:1px solid var(--ink);position:relative}
+.now::before{content:"";position:absolute;right:-1px;top:-1px;width:14px;height:14px;
+  border-right:2px solid #fff;border-top:2px solid #fff}
+.now .k{font-family:var(--mono);font-size:10px;letter-spacing:.24em;color:#ffffff73;text-transform:uppercase}
+.now .v{font-size:66px;font-weight:700;letter-spacing:-.04em;line-height:1;margin:10px 0 12px}
+.now .st{color:#ff7a6e;font-size:13px;font-weight:600}
+
+.tipbox{font-size:13px;color:var(--ink2);line-height:1.95}
+.tipbox .do{color:var(--acc-ink);font-weight:600}
+
+/* ============================================================
+   03 · 评测报告
+   ============================================================ */
+.probtn{
+  display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:10px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--ink3);background:var(--panel);border:1px solid var(--line2);
+  padding:9px 15px;border-radius:999px;cursor:pointer;transition:.15s;
+}
+.probtn:hover{border-color:var(--ink);color:var(--ink)}
+.probtn .sw{width:30px;height:15px;background:var(--panel);border:1px solid var(--line2);border-radius:999px;position:relative;transition:.2s}
+.probtn .sw i{position:absolute;top:2px;left:2px;width:9px;height:9px;border-radius:50%;background:var(--ink3);transition:.2s}
+.probtn.on{border-color:var(--acc);color:var(--acc-ink)}
+.probtn.on .sw{background:var(--acc);border-color:var(--acc)}
+.probtn.on .sw i{left:17px;background:#fff}
+
+.report{display:grid;grid-template-columns:320px 1fr;gap:14px;align-items:start}
+.total{padding:6px 0 2px}
+.total .v{font-family:var(--mono);font-size:88px;font-weight:700;letter-spacing:-.05em;line-height:1}
+.total .v .na{font-size:30px;letter-spacing:.08em;color:var(--ink2);font-weight:600}
+.total .v small{font-size:13px;font-weight:400;color:var(--ink3);letter-spacing:.1em}
+.total .d{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--acc-ink);
+  border:1px solid var(--acc);padding:4px 10px;margin-top:14px;text-transform:uppercase}
+.threeline{display:grid;grid-template-columns:repeat(3,1fr);margin-top:22px;border:1px solid var(--line)}
+.threeline div{padding:13px 6px 11px;text-align:center;border-right:1px solid var(--line)}
+.threeline div:last-child{border-right:0}
+.threeline .k{font-size:10.5px;color:var(--ink3);line-height:1.5}
+.threeline .n{font-family:var(--mono);font-size:21px;font-weight:700;margin-top:5px;letter-spacing:-.02em}
+/* KTV 式并列参考分（2026-10-18）：对离群点不敏感的命中率口径 */
+.ktvbox{margin:12px 0 2px;border-top:1px dashed var(--line2);padding-top:10px}
+.ktv-h{display:flex;align-items:baseline;gap:8px;margin-bottom:4px}
+.ktv-h .t{font-size:12px;font-weight:600;color:var(--ink)}
+.ktv-h .e{font-family:var(--mono);font-size:9px;letter-spacing:.14em;color:var(--ink3);text-transform:uppercase}
+.ktv-v{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.ktv-v b{font-family:var(--mono);font-size:26px;font-weight:700;line-height:1;letter-spacing:-.03em}
+.ktv-sub{font-size:11px;color:var(--ink3);line-height:1.5}
+/* 2026-10-20：KTV 与「唱准了吗」是两个口径。不解释的话，
+   「音准 14.5 / 命中 68.9%」并排出现读起来像系统自相矛盾。 */
+.ktv-hint{font-size:11px;color:var(--ink3);line-height:1.7;margin-top:7px}
+/* 2026-10-20：分数怎么来的（准确度 vs 稳定性）。放在三项分之下，
+   一眼能对上「唱准了吗 14.5」。—— 只引用报告里已有的量。 */
+.score-note{
+  margin-top:12px;padding:9px 11px;background:var(--paper2);
+  border-left:2px solid var(--line2);font-size:12px;color:var(--ink2);line-height:1.8;
+}
+.score-note b{color:var(--ink)}
+#radar{height:238px;margin-top:14px;display:block;width:100%}
+.radar-cap{font-family:var(--mono);font-size:9px;letter-spacing:.2em;color:var(--ink4);text-align:center;margin-top:10px;text-transform:uppercase}
+
+.duo{display:flex;flex-direction:column;gap:15px}
+.duo .row .lb{display:flex;justify-content:space-between;font-size:12.5px;color:var(--ink2);margin-bottom:7px}
+.duo .row .lb b{font-weight:700;color:var(--ink)}
+.duo .track{height:4px;background:var(--line)}
+.duo .track i{display:block;height:100%;background:var(--ink)}
+.duo .track i.a{background:var(--acc)}
+
+.acc{background:var(--panel);border:1px solid var(--line);margin-bottom:10px;overflow:hidden}
+.acc summary{list-style:none;cursor:pointer;padding:16px 20px;display:flex;align-items:center;gap:14px;transition:.15s}
+.acc summary::-webkit-details-marker{display:none}
+.acc summary:hover{background:#fafbf9}
+.acc summary::before{content:"+";font-family:var(--mono);font-size:14px;color:var(--ink4);width:14px;text-align:center;flex:none;transition:.2s}
+.acc[open] summary::before{content:"−";color:var(--ink)}
+.acc .q{flex:1;font-size:14.5px;font-weight:700}
+.acc .q s{display:block;font-family:var(--mono);font-size:9px;color:var(--ink4);text-decoration:none;
+  letter-spacing:.2em;text-transform:uppercase;font-weight:400;margin-top:4px}
+.acc .lvl{font-size:11px;padding:5px 12px;white-space:nowrap;font-weight:600;letter-spacing:.14em;border:1px solid transparent}
+.L-good{color:var(--good);border-color:#0e7a5c66;background:#0e7a5c0a}
+.L-mid{color:var(--acc-ink);border-color:#c93a2a55;background:#c93a2a0d}
+.L-bad{color:#fff;border-color:#0a0a0b;background:#0a0a0b}
+.acc .body{padding:2px 20px 22px;border-top:1px solid var(--line)}
+.acc .body canvas{height:104px;margin:18px 0 16px;background:#fcfcfa;border:1px solid var(--line);display:block;width:100%}
+.plain{font-size:13px;line-height:2;color:var(--ink2)}
+.plain b{color:var(--ink)}
+.action{margin-top:16px;padding:15px 18px;background:#fdf1ef;border-left:3px solid var(--acc);
+  font-size:13px;line-height:2;color:#5e1414}
+.action .do{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--acc-ink);
+  display:block;margin-bottom:6px;text-transform:uppercase;font-weight:700}
+.jargon{display:none;margin-top:15px;padding-top:13px;border-top:1px dashed var(--line2);
+  font-size:11.5px;color:var(--ink3);line-height:1.9}
+body.pro .jargon{display:block}
+.jargon code{color:var(--ink);background:#0f11130d;padding:2px 6px;font-family:var(--mono);font-size:10.5px}
+
+.problem{display:flex;align-items:center;gap:15px;padding:14px 0;border-bottom:1px solid var(--line)}
+.problem:last-child{border-bottom:0}
+.problem .tt{flex:1;font-size:13px;line-height:1.7;font-weight:600}
+.problem .tt s{display:block;text-decoration:none;font-size:12px;color:var(--ink2);margin-top:4px;font-weight:400;line-height:1.75}
+.problem .tm{font-family:var(--mono);font-size:10px;color:var(--ink4);letter-spacing:.08em}
+
+/* 黑色反转卡（每页至多一个：对比锚点） */
+.ai{background:var(--ink);color:#fff;padding:26px 28px;border:1px solid var(--ink)}
+.ai .who{display:flex;align-items:center;gap:11px;margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid #ffffff26}
+.ai .who .av{width:24px;height:24px;background:#fff;color:var(--ink);display:grid;place-items:center;
+  font-size:11px;font-weight:800;clip-path:polygon(0 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%)}
+.ai .who b{font-size:13px;letter-spacing:.1em}
+.ai .who .tag{font-family:var(--mono);font-size:9px;letter-spacing:.2em;color:#ffffff66;margin-left:auto;text-transform:uppercase}
+.ai p{font-size:13.5px;line-height:2.05;color:#ffffffc9}
+.ai p+p{margin-top:12px}
+.ai .k{color:#fff;font-weight:700}
+.ai .say{color:#fff;background:#ffffff1f;padding:2px 8px;font-weight:600}
+.ai .note{color:#ffffff73;font-size:12px;margin-top:16px}
+.ai .acts{margin-top:20px;display:flex;gap:10px;flex-wrap:wrap}
+.ai .btn{background:transparent;border-color:#ffffff4d;color:#fff}
+.ai .btn:hover{border-color:#fff}
+.ai .btn.solid{background:#fff;border-color:#fff;color:var(--ink);font-weight:600}
+.ai .btn.solid:hover{background:#e8e8e8}
+
+/* ---------- ★ 教练卡重做（2026-10-07）----------
+   作者反馈「总评太短、不显眼、没有 AI 陪练的感觉」。
+   原来只把总评拍成一串 <p>；现在分三段，**练法单独突出** ——
+   那是用户唯一真正要照做的事。
+
+   设计上依赖已有的 `.ai`（深色底 + 白字，本身就很显眼），
+   这里只补三段各自的层次：结论最大、展开次之、练法用竖线块。 */
+.coach-hero{padding:30px 32px}
+.coach-top{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+.coach-top .av{
+  width:28px;height:28px;background:#fff;color:var(--ink);
+  display:grid;place-items:center;font-weight:800;font-size:13px;flex:none;
+}
+.coach-head{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.coach-head b{font-size:14px;letter-spacing:.12em;color:#fff}
+.coach-head s{
+  font-family:var(--mono);font-size:9px;letter-spacing:.16em;
+  color:#ffffff8a;text-decoration:none;
+}
+/* 「AI 生成」徽标 —— **只在总评真由模型写时才显示**。
+   没配 key 时它必须消失，否则就是在界面上撒谎。 */
+.coach-live{
+  font-family:var(--mono);font-size:9px;letter-spacing:.14em;
+  padding:4px 9px;border:1px solid #ffffff59;color:#fff;flex:none;
+}
+.coach-main .co-line{
+  font-size:19px;line-height:1.55;font-weight:700;color:#fff;margin-bottom:14px;
+}
+.coach-main .co-body{
+  font-size:14px;line-height:1.95;color:#ffffffd4;margin-bottom:0;
+}
+/* 练法块：左边一道白竖线 + 上方小标 —— 一眼可辨"这是要做的事" */
+.co-drill{
+  margin-top:18px;padding:14px 16px;background:#ffffff14;
+  border-left:3px solid #fff;
+}
+.co-drill-h{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;
+  color:#ffffff9e;display:block;margin-bottom:7px;
+}
+.co-drill p{font-size:14px;line-height:1.9;color:#fff;font-weight:600;margin:0}
+
+/* ============================================================
+   04 · 复练对比
+   ============================================================ */
+.delta{
+  font-family:var(--mono);font-size:15px;font-weight:700;color:var(--good);
+  border:1px solid #0e7a5c66;background:#0e7a5c0a;padding:10px 18px;letter-spacing:.06em;white-space:nowrap;
+}
+/* 下降也画成绿色会让"退步"看起来像好消息；按变化方向着色。 */
+.delta.bad{color:var(--acc-ink);border-color:#c93a2a66;background:#fdf1ef}
+.delta.mid{color:var(--ink2);border-color:var(--line2);background:#0f11130a}
+.bigrow{display:grid;grid-template-columns:repeat(3,1fr);margin-top:22px;border:1px solid var(--line)}
+.bigrow>div{padding:16px 20px;border-right:1px solid var(--line)}
+.bigrow>div:last-child{border-right:0}
+.bigrow .k{font-size:11px;color:var(--ink3);margin-bottom:7px}
+.bigrow .n{font-family:var(--mono);font-size:23px;font-weight:700;letter-spacing:-.02em}
+.compare{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.cmp-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px;padding-bottom:13px;border-bottom:1px solid var(--line)}
+.cmp-h .t{font-size:15px;font-weight:700}
+.compare canvas{height:150px;display:block;width:100%}
+
+/* ============================================================
+   05 · 成长档案
+   ============================================================ */
+.growth{display:grid;grid-template-columns:1.55fr 1fr;gap:14px;align-items:start}
+#prog{height:250px;display:block;width:100%}
+.stylecard{background:var(--ink);color:#fff;padding:26px 28px;border:1px solid var(--ink)}
+.stylecard .k{font-family:var(--mono);font-size:10px;letter-spacing:.24em;color:#ffffff73;text-transform:uppercase}
+.stylecard h4{font-size:26px;margin:12px 0 13px;font-weight:700;letter-spacing:.02em}
+.stylecard p{font-size:13px;line-height:2;color:#ffffffc9}
+.stylecard .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+.stylecard .chips span{font-size:11px;padding:5px 12px;border:1px solid #ffffff40;color:#ffffffd9;letter-spacing:.06em}
+.hist{display:flex;align-items:baseline;gap:14px;padding:12px 0;border-bottom:1px solid var(--line);font-size:13px}
+.hist:last-child{border-bottom:0}
+.hist[role="button"]{cursor:pointer;transition:background .15s,transform .15s}
+.hist[role="button"]:hover{background:#0f11130a;transform:translateX(2px)}
+.hist[role="button"]:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.hist .d{font-family:var(--mono);font-size:10.5px;color:var(--ink2);width:84px;flex:none}
+.hist .s{font-family:var(--mono);font-size:17px;font-weight:700;width:30px;flex:none}
+.hist .t{flex:1;color:var(--ink2)}
+.hist .up{font-family:var(--mono);font-size:10px;color:var(--good);letter-spacing:.06em}
+.hist .dn{font-family:var(--mono);font-size:10px;color:var(--warn);letter-spacing:.06em}
+
+/* ============================================================
+   06 · 实验数据
+   ============================================================ */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);background:var(--panel);margin-bottom:14px}
+.stat{padding:20px 24px;border-right:1px solid var(--line)}
+.stat:last-child{border-right:0}
+.stat .k{font-size:11px;color:var(--ink3);margin-bottom:9px}
+.stat .n{font-family:var(--mono);font-size:36px;font-weight:700;letter-spacing:-.04em;line-height:1}
+.stat .n small{font-size:12px;font-weight:400;color:var(--ink3);letter-spacing:.05em}
+.exp2{display:grid;grid-template-columns:1.25fr 1fr;gap:14px}
+#scatter{height:270px;display:block;width:100%}
+.tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+.tbl th{font-family:var(--mono);font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink4);
+  font-weight:500;text-align:left;padding:0 10px 11px 0;border-bottom:1px solid var(--ink)}
+.tbl td{padding:11px 10px 11px 0;border-bottom:1px solid var(--line);color:var(--ink2)}
+.tbl td:first-child{color:var(--ink);font-weight:600}
+.tbl .w{font-weight:700;color:var(--ink)}
+
+/* ============================================================
+   07 · 设置
+   ============================================================ */
+.seg{display:flex;flex-wrap:wrap;border:1px solid var(--line2);width:fit-content}
+.seg button{
+  font:inherit;font-size:12.5px;padding:9px 18px;background:var(--panel);border:0;color:var(--ink2);
+  cursor:pointer;border-right:1px solid var(--line);transition:.15s;letter-spacing:.02em;
+}
+.seg button:last-child{border-right:0}
+.seg button:hover{color:var(--ink)}
+.seg button.on{background:var(--ink);color:#fff;font-weight:600}
+.rangeviz{margin-top:22px}
+.keys{position:relative;height:38px;border:1px solid var(--line2);
+  background:repeating-linear-gradient(90deg,var(--panel) 0 calc(100%/44 - 1px),var(--line) calc(100%/44 - 1px) calc(100%/44))}
+.keys .band{position:absolute;top:0;bottom:0;background:#c93a2a14;border-left:2px solid var(--acc);border-right:2px solid var(--acc)}
+.keys .tick{position:absolute;top:0;bottom:0;width:1px;background:var(--ink3)}
+.lbl{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--ink4);
+  letter-spacing:.14em;margin-top:7px}
+.note{font-size:12.5px;color:var(--ink2);margin-top:12px;line-height:1.9}
+.note b{color:var(--ink)}
+.setrow{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:15px 0;border-bottom:1px solid var(--line)}
+.setrow:last-child{border-bottom:0}
+.setrow .info b{font-size:13.5px;font-weight:600;display:block}
+.setrow .info s{display:block;text-decoration:none;font-size:12px;color:var(--ink3);margin-top:4px;line-height:1.75;font-weight:400}
+.setrow .ctl{flex:none;display:flex;align-items:center;gap:10px}
+.sw2{width:40px;height:22px;border-radius:999px;border:1px solid var(--line2);background:var(--panel);cursor:pointer;position:relative;transition:.2s}
+.sw2 i{position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:var(--ink3);transition:.2s}
+.sw2.on{background:var(--ink);border-color:var(--ink)}
+.sw2.on i{left:21px;background:#fff}
+
+/* ============================================================
+   08 · 界面状态
+   ============================================================ */
+.statebox{background:var(--panel);border:1px solid var(--line);padding:30px 30px 26px;position:relative}
+.statebox.tick::before{content:"";position:absolute;left:-1px;top:-1px;width:14px;height:14px;
+  border-left:2px solid var(--ink);border-top:2px solid var(--ink)}
+.statebox .big{width:40px;height:40px;color:var(--ink);margin-bottom:18px}
+.statebox h4{font-size:16.5px;font-weight:700;margin-bottom:11px}
+.statebox p{font-size:13px;color:var(--ink2);line-height:1.95}
+.statebox p b{color:var(--ink)}
+.statebox .acts{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
+.statebox .tip{margin-top:18px;padding-top:13px;border-top:1px dashed var(--line2);
+  font-size:11.5px;color:var(--ink3);line-height:1.9}
+.statebox .tip b{color:var(--ink2)}
+.statwrap{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.permwrap .statebox{padding:44px 40px 36px;text-align:center;display:flex;flex-direction:column;align-items:center}
+.permwrap .statebox .tip{max-width:520px}
+
+/* ---------- 分析中遮罩（精算管线） ---------- */
+.veil{position:fixed;inset:0;z-index:90;background:rgba(241,244,242,.85);
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);
+  display:none;place-items:center}
+.veil.on{display:grid}
+.veil .box{background:var(--panel);border:1px solid var(--line2);padding:44px 56px 38px;text-align:center;position:relative;max-width:460px}
+.veil .box::before{content:"";position:absolute;left:-1px;top:-1px;width:16px;height:16px;
+  border-left:2px solid var(--ink);border-top:2px solid var(--ink)}
+.veil .box::after{content:"";position:absolute;right:-1px;bottom:-1px;width:16px;height:16px;
+  border-right:2px solid var(--ink);border-bottom:2px solid var(--ink)}
+.spin-mark{width:42px;height:42px;color:var(--ink);margin:0 auto 20px;animation:spin 2.8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.veil h4{font-size:18px;font-weight:700;margin-bottom:10px}
+.veil .sub2{font-family:var(--mono);font-size:10px;color:var(--ink3);letter-spacing:.14em;text-transform:uppercase;margin-bottom:24px}
+.veil .steps{display:flex;flex-direction:column;gap:11px;text-align:left;font-size:12.5px;color:var(--ink3)}
+.veil .steps div{display:flex;align-items:center;gap:10px}
+.veil .steps .done{color:var(--ink)}
+.veil .steps .deco{width:13px;height:13px;color:var(--good)}
+.veil .steps div:not(.done) .deco{color:var(--ink4)}
+.veil .esc{margin-top:22px;font-family:var(--mono);font-size:9.5px;color:var(--ink4);letter-spacing:.18em;text-transform:uppercase}
+
+/* ---------- 入场动效：离解复合式快速切入（clip-path 左→右展开） ---------- */
+@keyframes cutin{from{clip-path:inset(0 100% 0 0);opacity:.35;transform:translateX(-18px)}to{clip-path:inset(0 0 0 0);opacity:1;transform:none}}
+.screen.on .gate,
+.screen.on .mode,
+.screen.on .card,
+.screen.on .acc,
+.screen.on .problem,
+.screen.on .ai,
+.screen.on .now,
+.screen.on .transport,
+.screen.on .statebox,
+.screen.on .stats,
+.screen.on .permwrap,
+.screen.on .stylecard{animation:cutin .45s var(--ease) backwards}
+.screen.on .gate{animation-delay:.08s}
+.screen.on .mode:nth-child(1){animation-delay:.06s}
+.screen.on .mode:nth-child(2){animation-delay:.12s}
+.screen.on .mode:nth-child(3){animation-delay:.18s}
+.screen.on .stack > *:nth-child(1){animation-delay:.06s}
+.screen.on .stack > *:nth-child(2){animation-delay:.12s}
+.screen.on .stack > *:nth-child(3){animation-delay:.18s}
+.screen.on .stack > *:nth-child(4){animation-delay:.24s}
+.screen.on .acc:nth-child(1){animation-delay:.05s}
+.screen.on .acc:nth-child(2){animation-delay:.09s}
+.screen.on .acc:nth-child(3){animation-delay:.13s}
+.screen.on .acc:nth-child(4){animation-delay:.17s}
+.screen.on .acc:nth-child(5){animation-delay:.21s}
+.screen.on .acc:nth-child(6){animation-delay:.25s}
+
+/* 手机报告细节开关：桌面不显示（细节一直展开）。 */
+.detail-toggle{display:none}
+
+@media(max-width:1180px){
+  .shell{grid-template-columns:1fr}
+  /* 手机/窄屏：顶栏压成「品牌 → 一行可横滑导航 → 演唱者+数据源」。
+     原来是 8 项两行 + 演唱者卡 + 徽标 = ~320px，内容被推到 70%–83%。 */
+  aside{padding:16px 18px 0;border-right:0;margin-right:0;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  aside .logo{margin-bottom:0}
+  aside nav{
+    width:100%;flex-direction:row;gap:16px;flex-wrap:nowrap;
+    overflow-x:auto;padding-bottom:4px;scrollbar-width:none;
+  }
+  aside nav::-webkit-scrollbar{display:none}
+  aside nav button{padding:6px 0;font-size:12.5px;white-space:nowrap;flex:none}
+  aside nav button::before{display:none}
+  aside .meta{display:none}
+  .who{width:auto;flex:1 1 150px;margin-top:0;padding:6px 10px}
+  .who .k{font-size:8.5px}
+  .who b{font-size:12px;margin-top:2px}
+  .srcbadge{margin-top:0;flex:none}
+  main{padding:16px 18px 32px}
+  .mq{display:none}
+  .modes,.report,.practice,.growth,.exp2,.compare,.statwrap{grid-template-columns:1fr}
+  /* s3 窄屏：两个 .stack 用 display:contents 摊平，再按"结论 → 教练 → 计划
+     → 细节 → 证据"排序。桌面是左摘要/右教练；手机若照 DOM 顺序，教练会被
+     推到 3000px 之后（实测 5234px 的报告里它在 ~3500px）。 */
+  #s3 .report{display:flex;flex-direction:column;gap:14px}
+  #s3 .report > .stack{display:contents}
+  #s3 .report .summary{order:1}
+  #s3 .report [data-b="plan-card"]{order:2}
+  #s3 .report .ai{order:3}
+  #s3 .report .decomp{order:4}
+  #s3 .report .acc-wrap{order:5}
+  #s3 .report .problems{order:6}
+  #s3 .report [data-b="tpl-card"]{order:7}
+  /* 手机默认只给结论；细节由按钮展开。 */
+  .detail-toggle{display:inline-flex;align-items:center;gap:6px;margin:0 0 14px;
+    padding:9px 14px;font-family:var(--mono);font-size:12px;letter-spacing:.04em;
+    border:1px solid var(--line2);border-radius:5px;background:#fff;
+    color:var(--ink2);cursor:pointer}
+  .detail-toggle:hover{border-color:var(--ink);color:var(--ink)}
+  #s3 .report:not(.show-details) .decomp,
+  #s3 .report:not(.show-details) .acc-wrap,
+  #s3 .report:not(.show-details) .problems,
+  #s3 .report:not(.show-details) [data-b="tpl-card"]{display:none !important}
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .head h1{font-size:40px}
+  .head .ghost{font-size:90px}
+  #s2 .head h1,#s3 .head h1,#s4 .head h1,#s5 .head h1,
+  #s6 .head h1,#s7 .head h1,#s8 .head h1{font-size:30px}
+  #s2 .head .sub,#s3 .head .sub,#s4 .head .sub,#s5 .head .sub,
+  #s6 .head .sub,#s7 .head .sub,#s8 .head .sub{font-size:12.5px}
+  .rail{display:none}
+  .dock-inner.open{max-width:88vw}
+  .bgfx .shard,.bgfx .word-big,.bgfx .word-v{display:none}
+}
+
+/* ══════════════════════════════════════════════════════════
+   生成后补丁 · 由 tools/split_v7.py 的 CSS_PATCH 写入，**不要手改本文件这一段**
+   ══════════════════════════════════════════════════════════
+   这里只补"接线之后才需要"的样式，不改动 v7 原型的任何既有规则 ——
+   原型是视觉资产，改它就等于让截图对照失去基准。 */
+
+/* 历史记录：原型里 5 行是写死的兄弟元素，最后一行靠 `.hist:last-child` 去掉底边。
+   接线后它们被包进 `.histwrap` 由 JS 重画，`:last-child` 不再命中
+   （.hist 不再是父元素的最后一个孩子）→ 最后一行会多出一条边。
+   补这一条把边去掉，视觉与原型一致。 */
+.histwrap .hist:last-child{border-bottom:0}
+
+/* ── s2「这次跟什么唱」的列表（2026-09-23，G4-a）────────────
+   为什么不能复用原型里的 `.mode`：那是 s1 的**大模式卡**，
+   带 `flex:1` 与大号 `.num`，放进这里每一张都会撑成一整屏高 ——
+   实测截图：内置曲目那一块整个是空的、模板卡片被挤到看不见。
+   （探针当时是"通过"的，因为它只查文本在不在 DOM 里，
+     而文字确实在，只是排到了画面外面。**排版塌了属于截图才看得见的那类问题。**）
+   这里给一个紧凑的行式列表，与 s7 的 `.setrow` 视觉一致。 */
+.picklist{display:flex;flex-direction:column;gap:8px;margin:8px 0 18px}
+.pickrow{
+  display:flex;align-items:center;justify-content:space-between;gap:14px;
+  padding:11px 14px;border:1px solid var(--line);border-radius:7px;
+  background:#fff;transition:border-color .15s,transform .15s;
+}
+.pickrow:hover{border-color:var(--ink);transform:translateX(2px)}
+.pickrow .t{font-size:13.5px;font-weight:600}
+.pickrow .m{font-family:var(--mono);font-size:10.5px;color:var(--ink4);
+            letter-spacing:.06em;margin-top:3px}
+.pickrow .go{
+  font-family:var(--mono);font-size:10px;letter-spacing:.14em;
+  padding:7px 14px;border:1px solid var(--line2);border-radius:5px;
+  background:#fff;cursor:pointer;color:var(--ink2);flex:none;
+}
+.pickrow .go:hover{border-color:var(--ink);color:var(--ink)}
+.pickrow .pickmain{flex:1;min-width:0}
+.pickrow .rowacts{display:flex;gap:6px;align-items:center;flex-wrap:wrap;
+  justify-content:flex-end;flex:none}
+@media (max-width:600px){
+  .pickrow{flex-wrap:wrap}
+  .pickrow .rowacts{flex:1 1 100%;justify-content:flex-start}
+}
+
+/* ── s3 分项结论里「本次未评估」的徽标（2026-09-23）──────────
+   原型的 `.lvl` 只有三档：L-good（绿）/ L-mid（红）/ L-bad（黑）。
+   "这一项没算出来"**不属于任何一档** —— 契约 §3.2 明确 null ≠ 0。
+   借用 L-mid 会把"没评估"画成红色的坏消息，用户会以为自己唱得差；
+   借 L-good 更糟。所以单独给一个**中性灰**：不评价。
+   实测后端在清唱素材上确实会产出 `本次未评估`（长音不足时颤音算不出来）。*/
+.L-na{color:var(--ink4);border-color:var(--line2);background:#0f11130a}
+
+/* 分项结论重画后外面那层 `.acc-wrap` 里不再包着写死的 `<details>`，
+   间距得自己给 —— 否则六块会贴在一起（`.acc` 自带 margin-bottom:10px，
+   但第一块顶上会紧贴上一张卡）。*/
+.acc-wrap{display:flex;flex-direction:column;gap:10px}
+/* 2026-10-18：桌面把六块分项排成两列。原先是六行各 ~80px，
+   右栏整块拉得很长；两列后报告页明显变短，扫读也更快。 */
+@media (min-width:1101px){
+  .acc-wrap{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
+  /* 展开的那一块横跨两列：① 里面的证据图更宽；② 否则左列展开后，
+     右列的第一块会留一大片空白，直到左列的高度结束。 */
+  .acc-wrap .acc[open]{grid-column:1 / -1}
+}
+.acc-wrap .acc{margin-bottom:0}
+.acc-wrap .acc .plain{padding-top:14px}
+
+/* ── 数据源徽标（2026-09-24）──────────────────────────────
+   接在侧栏底部。带 `data-mode="mock"` 时变红 ——
+   **假数据必须一眼看得出来**，否则"这张 78 分的截图"会被当成真实结果。 */
+.srcbadge{
+  display:inline-block;margin-top:18px;
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;
+  padding:5px 9px;border:1px solid var(--line2);border-radius:4px;
+  color:var(--ink2);background:#fffffff2;
+}
+.srcbadge[data-mode="mock"]{color:var(--acc-ink);border-color:#c93a2a66;background:#fdf1ef}
+
+/* ── 侧栏「当前演唱者」常驻行（G3，2026-10-01）──────────────
+   放在 `.meta` 区的最上面。样式照着 `.srcbadge` 的克制程度做：
+   它是**状态显示**，不是主按钮 —— 抢眼会破坏侧栏的排版层次。
+   `[data-empty="1"]` 是"名册读不到 / 这个人不在名册里"，
+   那时才转成警示色：因为屏幕上显示的身份可能已经不是数据库里的身份了。 */
+.who{
+  display:block;width:100%;margin-top:18px;padding:9px 11px;text-align:left;
+  font-family:var(--mono);border:1px solid var(--line2);border-radius:5px;
+  background:#fffffff2;color:var(--ink2);cursor:pointer;
+  transition:border-color .15s,transform .15s;
+}
+.who:hover{border-color:var(--ink);transform:translateX(2px)}
+.who .k{display:block;font-size:9px;letter-spacing:.12em;color:var(--ink4);
+        text-transform:uppercase}
+.who b{display:block;margin-top:4px;font-size:12.5px;font-weight:600;
+       letter-spacing:.02em;color:var(--ink)}
+.who[data-empty="1"]{border-color:#c93a2a66;background:#fdf1ef}
+.who[data-empty="1"] b{color:var(--acc-ink)}
+/* `data-heal="1"`：名册里原来那位已经不存在，系统**替你换了一个人**。
+   与 `data-empty` 同样转警示色 —— 两者都是"你看到的可能不是你以为的那个人"，
+   但文案不同：empty 是"取不到名册"，heal 是"已自动切到 Y"。 */
+.who[data-heal="1"]{border-color:#c93a2a66;background:#fdf1ef}
+.who[data-heal="1"] .k{color:var(--acc-ink)}
+
+/* s7「演唱者」卡里的行内小按钮（切换/改名/删除）。
+   复用 s2 那套 `.picklist/.pickrow`（见上面的补丁），只补按钮排布 ——
+   三个按钮要能一行放下，窄屏时换行而不是被裁掉。 */
+.who-acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.who-acts .go[data-act="delete"]{color:var(--acc-ink);border-color:#c93a2a55}
+.who-acts .go[aria-pressed="true"]{border-color:var(--ink);color:var(--ink);
+  background:#0f11130a}
+.who-form{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.who-form input{
+  flex:1;min-width:160px;padding:8px 11px;border:1px solid var(--line);
+  border-radius:6px;font-size:13px;font-family:inherit;background:#fff;color:var(--ink);
+}
+.who-form input:focus{outline:none;border-color:var(--ink)}
+.who-note{margin-top:10px;font-size:12.5px;line-height:1.85;color:var(--ink3)}
+.who-note b{color:var(--ink2)}
+.who-note.warn{color:var(--acc-ink)}
+
+/* s7「关于与演示」：两个按钮 + 一段说明，横排会把「界面状态」顶出卡片；
+   统一让说明占一行、按钮落到下一行靠左。 */
+.demo-row{flex-wrap:wrap}
+.demo-row .info{flex:1 1 100%;min-width:0}
+.demo-row .ctl{flex:1 1 100%;justify-content:flex-start;margin-top:6px}
+
+
+
+/* ============================================================
+   练习计划（B1，2026-10-01）—— 报告页「下一遍只改这一件事」
+   ------------------------------------------------------------
+   设计意图：这是整页**唯一**要用户"照做"的块，所以视觉上要比
+   其它卡片更"像一张处方"：重点先行、步骤紧凑、目标可勾。
+   ============================================================ */
+.plan-focus{
+  font-size:19px;font-weight:700;letter-spacing:.01em;line-height:1.5;
+  padding-left:13px;border-left:3px solid var(--acc-ink);margin:2px 0 12px;
+}
+.plan-why{font-size:13px;line-height:2;margin:0 0 14px}
+.plan-steps{margin:0 0 14px;padding-left:20px;font-size:13px;line-height:2}
+.plan-steps li{margin-bottom:6px}
+.plan-steps li::marker{font-family:var(--mono);font-size:11px;color:var(--ink4)}
+.plan-done{
+  display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;
+  font-size:12.5px;line-height:1.9;color:var(--ink2);
+  background:rgba(15,17,19,.04);border-left:3px solid var(--good);
+  padding:9px 13px;margin-bottom:14px;
+}
+.plan-done b{color:var(--good);flex:none}
+.plan-done .plan-target-hint{
+  flex-basis:100%;font-style:normal;font-size:10.5px;line-height:1.65;
+  color:var(--ink3);border-top:1px dashed var(--line2);padding-top:6px;margin-top:2px;
+}
+.plan-facts{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.plan-facts .chip{
+  display:inline-flex;align-items:baseline;gap:6px;
+  font-size:11px;padding:5px 11px;border:1px solid var(--line2);
+}
+.plan-facts .chip i{font-style:normal;color:var(--ink4);font-family:var(--mono)}
+.plan-facts .chip b{font-family:var(--mono)}
+.plan-demo{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.plan-demo .plain{font-size:11.5px;color:var(--ink4);line-height:1.7}
+/* AI 陪练：练这一句 / 微练习结果（2026-10-19） */
+.plan-practice{display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+  margin:0 0 14px;padding:12px 14px;background:rgba(201,58,42,.05);
+  border-left:3px solid var(--acc)}
+.plan-practice .btn{flex:none;padding:9px 20px;font-size:12.5px}
+.plan-practice .plain{font-size:11px;color:var(--ink3);line-height:1.5;max-width:none}
+/* 2026-10-20：为什么/怎么练/依据收进 details。
+   结论、目标、主按钮在前；论证按需展开（内容一字不少）。 */
+.plan-more{margin:0 0 4px;border-top:1px dashed var(--line2);padding-top:2px}
+.plan-more summary{
+  cursor:pointer;list-style:none;padding:9px 0 7px;
+  font-family:var(--mono);font-size:11.5px;letter-spacing:.04em;color:var(--ink3);
+}
+.plan-more summary::-webkit-details-marker{display:none}
+.plan-more summary::before{content:"＋ ";color:var(--acc)}
+.plan-more[open] summary::before{content:"－ "}
+.plan-more summary:hover{color:var(--ink)}
+.plan-more .plan-why{margin-top:2px}
+.plan-style{margin:0 0 12px;padding-left:10px;border-left:2px solid var(--line2);
+  font-size:11.5px;color:var(--ink3);line-height:1.8}
+/* 2026-10-19：第几句/歌词/时间/问题字 */
+.plan-context{margin:0 0 12px;padding:7px 10px;background:var(--paper2);
+  border-left:2px solid var(--good);font-size:12px;line-height:1.7;color:var(--ink2)}
+.practice-ab{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:1px;background:var(--line);border:1px solid var(--line);margin:0 0 12px}
+.practice-ab-box{background:var(--paper);padding:10px 12px}
+.practice-ab-box .k{display:block;font-size:10.5px;color:var(--ink4);margin-bottom:4px}
+.practice-ab-box .v{font-size:18px;font-weight:700}
+.practice-ab-box.ok .v{color:var(--good)}
+.practice-ab-box.bad .v{color:var(--acc-ink)}
+@media (max-width:700px){
+  .practice-ab{grid-template-columns:1fr 1fr}
+  .practice-ab-box:last-child{grid-column:1/-1}
+}
+
+/* ══════════════════════════════════════════════════════════
+   ★ s2「Step 4 · 导入 MIDI」那一块（2026-10-10）
+   ══════════════════════════════════════════════════════════
+   为什么要有独立样式：这一块的内容是**解析之后才知道**的
+   （几个轨、每轨多少音、音域多宽），没法用原型里的静态卡。
+
+   视觉上刻意复用 `.pickrow` 那套语言（细边、白底、悬停位移），
+   因为它在同一屏里、就在"我的模板"列表正下方 ——
+   换一套长相会让用户以为那是**另一个功能**，而不是第四条路。
+
+   ⚠️ `.midi-row.on` 用**加粗左边框**而不是换背景色：
+      这一屏里"选中"的语义是"这一轨的旋律会当参考"，
+      要一眼看得出来；只换底色在投影仪上基本看不出差别（答辩场景）。 */
+
+.midi-head{
+  font-size:12.5px;color:var(--ink2);line-height:1.8;
+  padding:9px 13px;margin:10px 0 8px;
+  border-left:3px solid var(--ink);background:rgba(15,17,19,.04);
+}
+.midi-head b{font-family:var(--mono);font-size:12px}
+
+.midi-tracks{display:flex;flex-direction:column;gap:6px;margin:8px 0 14px}
+
+.midi-row{
+  display:grid;grid-template-columns:54px minmax(110px,150px) 70px 96px minmax(0,1fr);
+  align-items:center;gap:10px;text-align:left;width:100%;
+  padding:9px 13px;border:1px solid var(--line);border-left:3px solid var(--line);
+  border-radius:7px;background:#fff;font:inherit;cursor:pointer;
+  transition:border-color .15s,transform .15s;
+}
+.midi-row:hover{border-color:var(--ink);transform:translateX(2px)}
+.midi-row.on{border-color:var(--ink);border-left-color:var(--acc-ink);
+             background:rgba(15,17,19,.03)}
+.midi-row .ix{font-family:var(--mono);font-size:10.5px;color:var(--ink4);
+              letter-spacing:.08em}
+.midi-row .nm{font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;
+              overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.midi-row .nm .tag{
+  font-family:var(--mono);font-size:9px;font-weight:400;letter-spacing:.1em;
+  padding:2px 6px;border:1px solid var(--acc-ink);border-radius:3px;
+  color:var(--acc-ink);flex:none;
+}
+.midi-row .ct,.midi-row .rg{font-family:var(--mono);font-size:11px;color:var(--ink2)}
+.midi-row .rs{font-size:11.5px;color:var(--ink4);line-height:1.6;
+              overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.midi-play{
+  display:flex;gap:12px;align-items:center;flex-wrap:wrap;
+  padding:11px 14px;border:1px solid var(--line);border-radius:7px;background:#fff;
+}
+.midi-play .lb{font-size:12.5px;color:var(--ink2);line-height:1.7}
+.midi-play audio{height:34px;flex:1;min-width:240px}
+
+/* 窄屏（笔记本分屏 / 答辩投影按 1024 宽）：轨名与理由换行，
+   宁可高一点，也不要横向溢出 —— 横向滚动条会让整块看起来"坏了"。 */
+@media (max-width:1100px){
+  .midi-row{grid-template-columns:48px minmax(90px,1fr) 64px minmax(0,1.4fr);
+            row-gap:4px}
+  .midi-row .rg{display:none}
+  .midi-row .rs{white-space:normal}
+}
+
+
+/* ── 伴奏倒数引导（2026-10-17）────────────────────────────
+   作者的原话：「没办法听到伴奏，不知道从哪里开始唱」。
+   这块就是在练习画面上方那块「准备 / 4 3 2 1 / 唱」。
+   ⚠️ 字号要大：这是**要用户余光看见**的东西 —— 他正盯着音高曲线、
+      耳朵在听伴奏、嘴里在唱。小字他根本不会看。 */
+.cue{
+  display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  margin:0 0 16px;padding:14px 18px;border-radius:10px;
+  background:var(--ink);color:#fff;
+}
+.cue[hidden]{display:none}
+.cue-n{
+  font:700 34px/1 var(--mono,monospace);min-width:64px;text-align:center;
+  letter-spacing:.02em;
+}
+.cue-t{flex:1;min-width:200px;font-size:13.5px;line-height:1.5;opacity:.92}
+.cue .pbtn{background:transparent;border-color:#ffffff55;color:#fff}
+.cue .pbtn:hover{background:#ffffff1a}
+
+
+/* ── 练习前的引导块（2026-10-17）──────────────────────────
+   作者：「没有引导性的东西」。这块讲清接下来会发生什么：
+   选曲 → 4 下节拍 → 第 5 下开口。 */
+.guide{
+  margin:0 0 18px;padding:13px 16px;border-radius:9px;
+  background:var(--bg2,#f6f6f4);border-left:3px solid var(--acc,#c93a2a);
+  font-size:13px;line-height:1.65;
+}
+.guide b{font-weight:600}
+
+/* ── s2 两段式：先选路，再看这一条路的控件（2026-10-18）──────────
+   原来四块 Step 1–4 全堆在一屏，选了 C 要滚 1100px 才找到上传框。
+   现在只有当前模式的 pane 可见；tab 本身就是"我在哪条路上"的答案。 */
+.mode-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px;
+  padding-bottom:12px;border-bottom:1px solid var(--line)}
+.mtab{
+  font:inherit;font-family:var(--mono);font-size:11px;letter-spacing:.06em;
+  padding:8px 12px;border:1px solid var(--line2);border-radius:4px;
+  background:#fff;color:var(--ink2);cursor:pointer;white-space:nowrap;
+  transition:border-color .15s,background .15s,color .15s;
+}
+.mtab:hover{border-color:var(--ink);color:var(--ink)}
+.mtab.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.mtab:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.mode-pane{margin-top:2px}
+.mode-pane .eyebrow{margin:0 0 8px}
+
+/* s2 移调：只改参考音高；分数按移调后的参考算。 */
+.transpose{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  margin:0 0 14px;padding:8px 12px;border:1px solid var(--line);
+  background:var(--bg2);font-family:var(--mono);font-size:11px;color:var(--ink2);
+}
+.transpose .k{letter-spacing:.12em;text-transform:uppercase;color:var(--ink3)}
+.transpose .v{min-width:30px;text-align:center;font-size:14px;font-weight:700;color:var(--ink)}
+.transpose .unit{color:var(--ink3)}
+.transpose .pbtn{min-width:26px;padding:3px 8px;font-size:13px;line-height:1.2}
+.transpose .plain{flex:1 1 100%;font-family:inherit;font-size:11.5px;
+  color:var(--ink3);letter-spacing:0;line-height:1.6}
+#s7 input[type="range"]{accent-color:var(--ink)}
+/* 三个播放控制加文字之后，按钮要能装下图标 + 文字 */
+.tbtn2{gap:0}
+/* 状态徽标：正在录 / 已暂停 —— 用户一眼知道现在在不在录 */
+.recstate{
+  font-size:11px;padding:3px 9px;border-radius:999px;
+  background:#c93a2a1a;color:#c93a2a;font-weight:600;white-space:nowrap;
+}
+.recstate.paused{background:#8a8a8a1f;color:#666}
+
+/* 窄屏：走带仍要一行放得下。按钮 36px 已是下限，gap/padding 收一点。 */
+@media (max-width:600px){
+  .practice > .transport{gap:8px;padding:10px 12px;top:6px}
+  .practice > .transport .mono{font-size:10px !important}
+  .practice > .transport .recstate{font-size:10px;padding:2px 6px}
+}
+
+/* s7 的设备选择：多个输入设备（内置阵列 + 耳机 + USB 麦）时，
+   原来 `.ctl{flex:none}` + 552px 的 `.seg` 会把整页撑到 636px。 */
+@media (max-width:900px){
+  .setrow{flex-wrap:wrap}
+  .setrow .ctl{flex:1 1 100%;justify-content:flex-start;min-width:0}
+  .setrow .info{flex:1 1 100%;min-width:0}
+  .setrow .info s{overflow-wrap:anywhere}
+  .seg{width:100%;max-width:100%;min-width:0}
+  .seg button{flex:1 1 auto;min-width:0;white-space:normal;text-align:center}
+}
+/* ★ 2026-10-18：窄屏的主栅格必须允许收缩。
+   默认 grid item 的 `min-width:auto` 会被最宽的子元素（s7 的 4 个设备按钮）
+   撑到 701px —— 之后 `.card` / `.setrow` / `.seg` 全跟着 611px。
+   只给 `.seg` 加 `flex-wrap` 治不了，因为**外层轨道**已经被 min-content 撑开。 */
+@media (max-width:1180px){
+  main{min-width:0}
+  .shell,aside,aside nav{min-width:0;max-width:100%}
+  .card,.stat,.gate,.compare,.stack,.setrow{min-width:0}
+  .setrow .info,.setrow .info b,.setrow .info s{min-width:0}
+}
+
+/* ══════════════════════════════════════════════════════════
+   ★ 2026-10-20 产品化排版修补（作者：排版要看得下去）
+   ----------------------------------------------------------
+   这一批都来自真实截图实测，不是审美偏好：
+     · 背景吊牌 / 坐标文字压在标题、导航、卡片上（每一屏都有）；
+     · s1 底部胶囊盖住模式卡最后一行；
+     · s9 没有并进"紧凑页头"，比别的屏高出一截；
+     · 手机上的落款标签正好压住底部导航。
+   原则：装饰留在 s1 的空白处，工具页只留网格；手机上不叠任何装饰字。
+   ══════════════════════════════════════════════════════════ */
+
+/* 吊牌式小标签只留右下角那一个，且只在 s1；它原来在 top:5%
+   正好压住「SECTION 01 — START」与品牌行。 */
+.bgfx .tag{display:none}
+body[data-screen="s1"] .bgfx .tag{display:block;right:13%;bottom:5.5%}
+
+/* 坐标/角标是"工程图"质感，放在 s1 的空白处；工具页一律不画。 */
+body:not([data-screen="s1"]) .bgfx .coord2,
+body:not([data-screen="s1"]) .bgfx .corner,
+body:not([data-screen="s1"]) .bgfx .mark,
+body:not([data-screen="s1"]) .bgfx .diag{display:none}
+
+/* s1 有固定胶囊（55+44px）与跑马灯（30px）。给内容留出净空，
+   否则滚到底时最后一行永远被盖住 —— 这不是"浮层"，是永久遮挡。 */
+body[data-screen="s1"] main{padding-bottom:132px}
+/* 工具页不显示胶囊/跑马灯，但仍留一点呼吸。 */
+body:not([data-screen="s1"]) main{padding-bottom:48px}
+
+/* s9 微练习结果：并进 s2–s8 的紧凑页头，别用 60px 海报标题。 */
+#s9 .head{margin-bottom:22px}
+#s9 .head .ghost{display:none}
+#s9 .head h1{font-size:38px;line-height:1.08;margin-top:6px;letter-spacing:-.02em}
+#s9 .head h1::first-line{text-shadow:none}
+#s9 .head h1 .hollow{color:var(--ink);-webkit-text-stroke:0}
+#s9 .head h1 br{display:none}
+#s9 .head .sub{font-size:13px;margin-top:8px;max-width:820px;line-height:1.7}
+#s9 .head .ruler{display:none}
+#s9 .head .ruler-lbl{font-size:10.5px;color:var(--ink2);letter-spacing:.14em;margin-top:6px}
+
+/* 窄屏 / 手机：装饰几何全部收起。它们在 390px 宽时不是"氛围"，
+   而是压在标题和正文上的灰色字（截图实测：MODE SELECT / X:0314 /
+   BRAND · SINGING ANALYSIS 三处都与正文重叠）。 */
+@media (max-width:1180px){
+  .geo,.bgfx .tag,.bgfx .coord2,.bgfx .corner,.bgfx .mark{display:none !important}
+  /* 手机底部胶囊是唯一的常驻浮层，把最后一段内容托起来 */
+  body[data-screen="s1"] main{padding-bottom:110px}
+  #s9 .head h1{font-size:30px}
+  #s9 .head .sub{font-size:12.5px}
+}
+
+/* 设置页「音域设窄了会怎样」：.gate 是 flex 行，.tx 没写 min-width:0，
+   手机上长句会把文字顶出卡片（截图实测：整段溢出粉色框）。 */
+.gate .tx{min-width:0;overflow-wrap:anywhere}
+@media (max-width:600px){
+  .gate{align-items:flex-start;gap:10px;padding:13px 14px}
+  .gate .code{display:none}
+}
+
+/* ── 2026-10-20：成长档案「看哪一首」+ 评分项/观察项分组 ───────── */
+.prog-pickrow{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  margin:2px 0 12px;padding:9px 11px;background:var(--paper2);
+  border-left:2px solid var(--line2);
+}
+.prog-pickrow label{
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;
+  color:var(--ink3);text-transform:uppercase;flex:none;
+}
+.prog-pickrow select{
+  font:inherit;font-size:12.5px;padding:7px 30px 7px 10px;
+  border:1px solid var(--line2);border-radius:5px;background:#fff;color:var(--ink);
+  max-width:100%;min-width:0;cursor:pointer;
+}
+.prog-pickrow select:focus{outline:none;border-color:var(--ink)}
+.prog-pickrow .plain{font-size:11px;color:var(--ink3);flex:1 1 100%;line-height:1.6}
+.bd-group{
+  font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--ink4);
+  text-transform:uppercase;margin:4px 0 2px;padding-top:6px;
+}
+.bd-group:first-child{margin-top:0;padding-top:0}
+.bd-group-na{margin-top:10px;border-top:1px dashed var(--line2);padding-top:12px}
+.bd-group s{
+  display:block;text-decoration:none;font-family:inherit;font-size:11px;
+  letter-spacing:0;text-transform:none;color:var(--ink3);line-height:1.6;margin-top:3px;
+}
+
+/* ── 2026-10-20：页内标题的分隔点（s2「准备练习 · 曲名」）───────── */
+.head h1 .sep{
+  display:inline-block;margin:0 .32em;color:var(--line2);
+  font-weight:400;transform:translateY(-.06em);
+}
+
+/* 报告页「删掉这一次」：挪到卡片底部后不再抢首屏 */
+.danger-row{margin-top:14px;padding-top:10px;border-top:1px dashed var(--line2)}
+.danger-row .pbtn{color:var(--ink4);font-size:11.5px}
+.danger-row .pbtn:hover{color:var(--acc-ink);border-color:#c93a2a66}
+
+/* ── 2026-10-20：手机不再用底部胶囊 ──────────────────────────
+   顶栏已经有同一套导航（7 项、可横滑、切屏时自动把当前项滚进来）。
+   底部那颗玻璃胶囊在 390px 下永远压住正文（截图实测：正好盖住
+   模式卡的最后一行），而它提供的功能是重复的。
+   桌面视口保留它（落地页的识别度）；手机隐藏。 */
+@media (max-width:1180px){
+  .dock{display:none !important}
+  body[data-screen="s1"] main{padding-bottom:56px}
+  /* 可横滑的导航两端渐隐：截断处看起来是"还有"，不是"被切坏了" */
+  aside nav{
+    -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 14px,
+      #000 calc(100% - 18px),transparent 100%);
+            mask-image:linear-gradient(90deg,transparent 0,#000 14px,
+      #000 calc(100% - 18px),transparent 100%);
+    padding-left:2px;
+  }
+}
+
+/* 2026-10-20：空的容器不要画成一条色块（s9 空态实测：
+   空的 .plan-practice 会渲染成一条粉红横条，看起来像渲染坏了）。 */
+.practice-ab:empty,
+.plan-demo:empty,
+.plan-practice:empty,
+.plan-context:empty,
+.plan-done:empty,
+.plan-facts:empty{display:none !important}
+
+/* 工具页不摆破碎几何：那几块红色/灰色切片在空白页上像残留物。
+   s1 的落地页保留（它是海报的一部分）。 */
+body:not([data-screen="s1"]) .bgfx .shard{display:none}
+
+/* 2026-10-20：s2 标题的层级 ——「准备练习 / 正在练习」是状态，
+   曲名才是这次的主体。两个都 38px 会读成一句没有停顿的长标题。 */
+#s2 .head h1 [data-b="s2-state"]{
+  font-size:.52em;font-weight:400;color:var(--ink3);letter-spacing:.02em;
+}
+/* 技术坐标 / MODE SELECT 这类装饰字只保留在 s1 的海报留白里；
+   它们原来压在副标题上（截图实测：X:0314 盖住"一遍该怎么唱"的下一行）。 */
+#s1 .geo .coord,#s1 .geo .vtext{display:none}
+
+/* 2026-10-20：总评的「未评估」不是卡片级空态，别套斜纹+虚线框
+   （截图里看起来像一个虚线按钮）。 */
+.total .v .na{background:none;border:0;padding:0}
+
+/* 空态三项分的「—」：小一号、灰色，不要用 21px 粗体画成黑杠 */
+.threeline .n.dim{color:var(--ink4);font-size:15px;font-weight:400}
+
+/* 2026-10-20（N5）：B 列表里的微练习片段收进可展开分组，别和用户模板混排 */
+.micro-tpls{margin-top:6px;border-top:1px dashed var(--line2);padding-top:4px}
+.micro-tpls > summary{
+  cursor:pointer;list-style:none;padding:8px 0 6px;
+  font-family:var(--mono);font-size:11px;letter-spacing:.03em;color:var(--ink3);
+}
+.micro-tpls > summary::-webkit-details-marker{display:none}
+.micro-tpls > summary::before{content:"＋ ";color:var(--acc)}
+.micro-tpls[open] > summary::before{content:"－ "}
+.micro-tpls > summary:hover{color:var(--ink)}
+.micro-tpls .pickrow{margin-top:6px}
+
+/* ── 2026-10-20：首页「上传歌曲」入口条（模式 E）────────────
+   为什么单独一条、不塞进四张模式卡：四卡已经占满 2×2，
+   再来第五张会把 A–D 的全在折叠线以下。这条横条在标题下面、
+   一屏可见，点进去才是完整的"上传 → 分析 → 跟唱"页面。 */
+.song-strip{
+  display:flex;align-items:center;gap:16px;margin:0 0 16px;padding:13px 18px;
+  background:var(--ink);color:#fff;border-left:4px solid var(--acc);
+  cursor:pointer;transition:transform .18s var(--ease),box-shadow .18s var(--ease);
+}
+.song-strip:hover{transform:translate(-1px,-2px);
+  box-shadow:5px 5px 0 rgba(201,58,42,.85)}
+.song-strip:focus-visible{outline:2px solid var(--acc);outline-offset:3px}
+.song-strip .k{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;color:var(--acc);
+  flex:none;border:1px solid #ffffff33;padding:5px 7px;border-radius:3px;
+}
+.song-strip .tx{flex:1;min-width:0}
+.song-strip .tx b{display:block;font-size:15px;letter-spacing:.01em}
+.song-strip .tx s{
+  display:block;margin-top:4px;font-size:11.5px;line-height:1.6;
+  color:#ffffff99;text-decoration:none;font-weight:400;
+}
+.song-strip .go{
+  flex:none;font-family:var(--mono);font-size:11px;letter-spacing:.1em;
+  color:#fff;border-bottom:1px solid #ffffff66;padding-bottom:2px;
+}
+@media (max-width:700px){
+  .song-strip{gap:10px;padding:12px 14px;align-items:flex-start}
+  .song-strip .k{display:none}
+  .song-strip .tx b{font-size:13.5px}
+  .song-strip .tx s{font-size:11px}
+  .song-strip .go{font-size:10px;margin-top:2px}
+}
+
+/* ── 2026-10-20：模式 E「上传歌曲跟唱」────────────────────── */
+.song-box{
+  margin-top:14px;padding:14px 16px;background:var(--panel);
+  border:1px solid var(--line);border-left:3px solid var(--acc);
+}
+.song-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+  margin-bottom:10px;flex-wrap:wrap}
+.song-head b{font-size:15px}
+.song-head span{font-family:var(--mono);font-size:11px;color:var(--ink3)}
+.song-field{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink3);
+  margin-bottom:10px}
+.song-field input{flex:1;min-width:160px;padding:7px 10px;border:1px solid var(--line2);
+  border-radius:5px;font:inherit;font-size:13px;background:#fff;color:var(--ink)}
+.song-range{display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:12px;
+  color:var(--ink2);padding:10px 0;border-top:1px dashed var(--line2);
+  border-bottom:1px dashed var(--line2);margin-bottom:10px}
+.song-range label{display:flex;align-items:center;gap:8px}
+.song-range input[type="range"]{width:180px;accent-color:var(--ink)}
+.song-range select{padding:6px 8px;border:1px solid var(--line2);border-radius:5px;
+  font:inherit;font-size:12.5px;background:#fff;color:var(--ink)}
+.song-range .plain{flex:1 1 100%;font-size:11.5px;color:var(--ink3);font-family:var(--mono)}
+.song-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.song-prog{height:6px;background:var(--line);margin:8px 0 8px;overflow:hidden}
+.song-prog i{display:block;height:100%;background:var(--acc);transition:width .4s ease}
+.song-quality{padding:10px 12px;margin:0 0 10px;border-left:3px solid var(--line2);
+  background:var(--paper2);font-size:12px;line-height:1.8}
+.song-quality b{display:block;font-size:13px;margin-bottom:2px}
+.song-quality s{display:block;text-decoration:none;color:var(--ink2)}
+.song-quality em{display:block;font-style:normal;color:var(--ink3);font-size:11.5px;margin-top:3px}
+.song-quality ul{margin:6px 0 0 18px;padding:0;color:var(--acc-ink);font-size:11.5px}
+.song-quality.q-good{border-left-color:var(--good)}
+.song-quality.q-good b{color:var(--good)}
+.song-quality.q-ok{border-left-color:var(--warn)}
+.song-quality.q-bad{border-left-color:var(--acc-ink);background:#c93a2a0d}
+.song-quality.q-bad b{color:var(--acc-ink)}
+.song-audition{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.song-audition .btn{padding:8px 14px;font-size:12px}
+.song-force{display:flex;align-items:center;gap:8px;font-size:11.5px;
+  color:var(--acc-ink);margin:8px 0;line-height:1.5}
+.song-force input{accent-color:var(--acc)}
+@media (max-width:700px){
+  .song-range input[type="range"]{width:130px}
+  .song-box{padding:12px}
+}
+
+/* ── 2026-10-20：报告页「参考来自原唱人声」横幅 ───────────── */
+.ref-source{
+  margin:10px 0 0;padding:9px 12px;background:var(--paper2);
+  border-left:3px solid var(--line2);font-size:12px;line-height:1.75;color:var(--ink2);
+}
+.ref-source b{display:inline;font-size:12px}
+.ref-source span{display:inline;margin-left:6px;color:var(--ink3);font-size:11.5px}
+.ref-source s{display:block;text-decoration:none;color:var(--ink3);font-size:11.5px;margin-top:3px}
+.ref-source.r-good{border-left-color:var(--good);background:#0f963605}
+.ref-source.r-ok{border-left-color:var(--warn)}
+.ref-source.r-bad{border-left-color:var(--acc-ink);background:#c93a2a0d}
+.ref-source.r-bad b{color:var(--acc-ink)}
+
+.ref-source .ref-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.ref-source .ref-acts .pbtn{font-size:11.5px;padding:6px 11px}
+
+/* 2026-10-20：B 列表里区分「歌曲参考（原调）」 */
+.tpl-kind{font-weight:600;color:var(--acc-ink);font-size:11px}
+
+@media (max-width:700px){
+  .ref-source{padding:8px 10px;font-size:11.5px}
+  .ref-source b{display:block;margin-bottom:2px}
+  .ref-source span{display:block;margin-left:0}
+  .ref-source .ref-acts{gap:6px}
+}
+
+/* ── 2026-10-20：整首跟唱的实时歌词（自动识别，行级高亮）──── */
+.practice > .lyrics-live{grid-column:1/-1}
+.lyrics-live{
+  background:var(--panel);border:1px solid var(--line);padding:10px 14px;
+}
+.lyrics-live .ly-head{
+  display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+  font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--ink3);
+}
+.lyrics-live .ly-head b{font-family:var(--sans);font-size:12px;color:var(--ink)}
+.ly-scroll{height:148px;overflow-y:auto;margin-top:6px;scrollbar-width:thin;
+  scroll-behavior:smooth;mask-image:linear-gradient(180deg,transparent,#000 10%,#000 90%,transparent)}
+.ly-line{
+  padding:5px 0;font-size:14px;line-height:1.7;color:var(--ink4);
+  transition:color .18s var(--ease),font-size .18s var(--ease);
+}
+.ly-line .t{display:inline}
+.ly-line.on{color:var(--ink);font-size:17px;font-weight:600}
+.ly-line.on::before{content:'';display:inline-block;width:3px;height:15px;
+  background:var(--acc);margin-right:8px;vertical-align:-2px}
+@media (max-width:700px){
+  .ly-scroll{height:132px}
+  .ly-line{font-size:13px}
+  .ly-line.on{font-size:15.5px}
+}
+
+/* 模式 E：分析完先给歌词预览（自动识别，行级时间） */
+.song-lyrics{margin:8px 0 10px;border-top:1px dashed var(--line2);padding-top:8px}
+.song-lyrics .ly-head{display:flex;align-items:baseline;justify-content:space-between;
+  gap:10px;font-family:var(--mono);font-size:10px;color:var(--ink3)}
+.song-lyrics .ly-head b{font-family:var(--sans);font-size:12px;color:var(--ink)}
+.song-ly-scroll{max-height:150px;overflow-y:auto;margin-top:5px;scrollbar-width:thin}
+.song-ly{font-size:12.5px;line-height:1.9;color:var(--ink2)}
+.song-ly i{display:inline-block;width:42px;font-style:normal;font-family:var(--mono);
+  font-size:10px;color:var(--ink4)}
+
+.song-edit{margin:8px 0 4px;border-top:1px dashed var(--line2);padding-top:6px}
+.song-edit > summary{cursor:pointer;font-size:11.5px;color:var(--ink3);
+  font-family:var(--mono);list-style:none;padding:4px 0}
+.song-edit > summary::before{content:'▸ ';color:var(--acc)}
+.song-edit[open] > summary::before{content:'▾ '}
+.song-edit textarea{width:100%;margin-top:6px;padding:8px 10px;border:1px solid var(--line2);
+  border-radius:5px;font:inherit;font-size:12.5px;line-height:1.7;resize:vertical;
+  background:#fff;color:var(--ink);min-height:90px}
+
+.total-basis{margin-top:-2px;font-family:var(--mono);font-size:10px;letter-spacing:.02em;
+  color:var(--ink3);line-height:1.5}
+
+/* 2026-10-20：E 屏「我上传过的歌」 */
+.song-lib{margin:14px 0 0;border-top:1px solid var(--line);padding-top:10px}
+.song-lib .sl-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+  margin-bottom:6px}
+.song-lib .sl-head b{font-size:13px}
+.song-lib .sl-head span{font-family:var(--mono);font-size:10px;color:var(--ink3)}
+.sl-list{display:flex;flex-direction:column;gap:6px;max-height:240px;overflow-y:auto}
+.sl-row{display:flex;align-items:center;gap:10px;padding:8px 10px;
+  background:var(--paper2);border-left:2px solid var(--line2)}
+.sl-main{flex:1;min-width:0}
+.sl-main b{display:block;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.sl-main span{display:block;margin-top:2px;font-size:11px;color:var(--ink3);
+  font-family:var(--mono);letter-spacing:.01em}
+.sl-acts{display:flex;gap:6px;flex:none}
+.sl-acts .pbtn{font-size:11.5px;padding:5px 9px}
+@media (max-width:700px){
+  .sl-row{align-items:flex-start}
+  .sl-acts{flex-direction:column}
+  .sl-main b{white-space:normal}
+}

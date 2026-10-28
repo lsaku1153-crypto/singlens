@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#101116">
+<title>SingLens · 演唱 AI 陪练</title>
+<!-- ★ 图标声明（2026-09-24）。不加这一行，浏览器会自动去要 /favicon.ico，
+     404 就在**每个页面的控制台**留一条红字 —— 红字常在，真实报错就没人看了。
+     (`/favicon.ico` 在服务端也有兜底路由，见 web/server.py 的 favicon_svg。) -->
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preload" as="font" type="font/woff2" href="/fonts/saira-cond-600.woff2" crossorigin>
+<link rel="preload" as="font" type="font/woff2" href="/fonts/plex-mono-400.woff2" crossorigin>
+<link rel="stylesheet" href="/css/shell.css">
+<!-- PRTS 终端皮肤：只做覆盖，删掉这一行即回到 v7 纸面皮肤（2026-10-21） -->
+<link rel="stylesheet" href="/css/prts.css">
+</head>
+<body data-screen="s1">
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-grid" viewBox="0 0 24 24"><path d="M4 4h6.5v6.5H4zM13.5 4H20v6.5h-6.5zM4 13.5h6.5V20H4zM13.5 13.5H20V20h-6.5z"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4.5 20V12M12 20V4.5M19.5 20v-5.5M3 20h18"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 4.5 21 19.5H3zM12 10v4M12 16.6v.6"/></symbol>
+  <symbol id="i-loop" viewBox="0 0 24 24"><path d="M4.5 10a7.5 7.5 0 0 1 12.8-4.3L20 8.5M19.5 14a7.5 7.5 0 0 1-12.8 4.3L4 15.5"/><path d="M20 4.5v4h-4M4 19.5v-4h4"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M4.5 12.5 9.5 17.5 20 6.5"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 3.2a2.8 2.8 0 0 1 2.8 2.8v5.6a2.8 2.8 0 0 1-5.6 0V6A2.8 2.8 0 0 1 12 3.2z"/><path d="M5.5 11.2a6.5 6.5 0 0 0 13 0M12 17.8V21M9 21h6"/></symbol>
+  <symbol id="i-micoff" viewBox="0 0 24 24"><path d="M4 4l16 16M9.4 9.6v2a2.8 2.8 0 0 0 4.2 2.4M12 3.2a2.8 2.8 0 0 1 2.8 2.8v5.2M5.5 11.2a6.5 6.5 0 0 0 13 0M12 17.8V21M9 21h6"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5.2l3.4 2"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-compare" viewBox="0 0 24 24"><path d="M4 9h13M14 5.5 17.5 9 14 12.5M20 15H7M10 11.5 6.5 15l3.5 3.5"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7.5 4.8 19 12 7.5 19.2z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8.5 5v14M15.5 5v14"/></symbol>
+  <symbol id="i-rec" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5.5" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-flask" viewBox="0 0 24 24"><path d="M9.5 3h5M10.5 3v6.2L5 19a1.8 1.8 0 0 0 1.6 2.5h10.8A1.8 1.8 0 0 0 19 19l-5.5-9.8V3"/><path d="M7.5 15h9"/></symbol>
+  <symbol id="i-set" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/></symbol>
+  <symbol id="i-state" viewBox="0 0 24 24"><path d="M12 3.5 21 12l-9 8.5L3 12z"/><path d="M12 8.5v4M12 15.6v.5"/></symbol>
+  <symbol id="d-star4" viewBox="0 0 24 24"><path d="M12 1.5c.9 5.6 3.9 8.6 9.5 9.5-5.6.9-8.6 3.9-9.5 9.5-.9-5.6-3.9-8.6-9.5-9.5C8.1 10.1 11.1 7.1 12 1.5z" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="d-dia" viewBox="0 0 24 24"><rect x="5.2" y="5.2" width="13.6" height="13.6" transform="rotate(45 12 12)" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="d-cross" viewBox="0 0 24 24"><path d="M12 2v20M2 12h20" stroke="currentColor" stroke-width="1.4" fill="none"/></symbol>
+  <symbol id="d-ch" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="12" cy="12" r="3.4" stroke="currentColor" stroke-width="1.2" fill="none"/></symbol>
+  <symbol id="d-ring" viewBox="0 0 24 24"><path d="M12 2.5 21.5 12 12 21.5 2.5 12zM12 7.5l4.5 4.5-4.5 4.5-4.5-4.5z" fill="none" stroke="currentColor" stroke-width="1.4"/></symbol>
+  <symbol id="d-dots" viewBox="0 0 24 24"><g fill="currentColor" stroke="none"><circle cx="4.5" cy="4.5" r="1.1"/><circle cx="12" cy="4.5" r="1.1"/><circle cx="19.5" cy="4.5" r="1.1"/><circle cx="4.5" cy="12" r="1.1"/><circle cx="12" cy="12" r="1.1"/><circle cx="19.5" cy="12" r="1.1"/><circle cx="4.5" cy="19.5" r="1.1"/><circle cx="12" cy="19.5" r="1.1"/><circle cx="19.5" cy="19.5" r="1.1"/></g></symbol>
+</svg>
+
+<div class="bgfx" aria-hidden="true">
+  <i class="shard" style="width:460px;height:320px;right:-110px;top:5%;clip-path:polygon(14% 0,100% 0,84% 100%,0 100%)"></i>
+  <i class="shard red" style="width:120px;height:88px;right:7%;top:37%;clip-path:polygon(0 0,100% 24%,76% 100%,8% 76%)"></i>
+  <i class="shard" style="width:360px;height:250px;left:21%;bottom:-120px;clip-path:polygon(0 22%,86% 0,100% 78%,12% 100%)"></i>
+  <i class="shard thin" style="width:52%;height:2px;left:30%;top:64%"></i>
+  <div class="diag" style="left:-6%;top:20%"></div>
+  <div class="diag rev" style="right:-14%;bottom:12%"></div>
+  <svg class="mark spin" style="left:31%;top:16%;width:15px;height:15px"><use href="#d-ch"/></svg>
+  <svg class="mark spin-r" style="right:26%;bottom:14%;width:11px;height:11px"><use href="#d-ch"/></svg>
+  <svg class="mark float" style="left:22.5%;top:58%;width:12px;height:12px"><use href="#d-cross"/></svg>
+  <svg class="mark float" style="right:31%;top:44%;width:9px;height:9px;animation-duration:12s"><use href="#d-dia"/></svg>
+  <div class="coord2" style="left:33%;top:27%">X:0314 · Y:1592<br>GRID 72PX</div>
+  <div class="coord2" style="right:24%;bottom:11%;text-align:right">SIGNAL / LOCAL<br>π ≈ 3.14159</div>
+  <!-- 大英文贴背景板（吊牌式） -->
+  <div class="word-v" style="right:4.5%;top:4%">SINGLENS</div>
+  <div class="word-big" style="right:-7%;bottom:-16%">S</div>
+  <div class="tag" style="right:13%;bottom:5.5%">© SingLens 2026 · Local Only</div>
+  <div class="corner tl" style="left:24.5%;top:11%"></div>
+  <div class="corner br" style="right:9%;bottom:24%"></div>
+  <!-- 2026-10-21 皮肤层新增：暗角 / 缓慢扫描 / 跟随指针的信号光 -->
+  <div class="vignette"></div>
+  <div class="scan"></div>
+  <div class="spot"></div>
+</div>
+
+<div class="rail"><span>SingLens — Analysis System</span><i class="sq"></i><span>Est. 2026 · Local Only</span></div>
+
+<div class="shell">
+  <aside>
+    <div class="logo">
+      <span class="sq">S</span>
+      <div><b>SingLens</b><div class="ver">V 0.7.0</div></div>
+    </div>
+    <nav>
+      <button class="on" data-s="s1"><span class="no">01</span>选择模式</button>
+      <button data-s="s2"><span class="no">02</span>开始练习</button>
+      <button data-s="s3"><span class="no">03</span>评测报告</button>
+      <button data-s="s4"><span class="no">04</span>复练对比</button>
+      <button data-s="s5"><span class="no">05</span>成长档案</button>
+      <button data-s="s7"><span class="no">07</span>设置</button>
+    </nav>
+    <div class="meta">
+      Singing Coach<br>
+      Local Only · No Upload<br>
+      Pitch Pipeline: YIN / PYIN<br>
+      六项表现力指标
+      <div class="ascii">
+        <span>◆</span><span>·</span><span>0</span><span>1</span><span>▲</span><span>■</span><span>+</span><span>×</span>
+        <span>2A</span><span>2E</span><span>3C</span><span>4F</span><span>5A</span><span>6B</span><span>7D</span><span>8E</span>
+        <span>·</span><span>唱</span><span>准</span><span>·</span><span>跟</span><span>上</span><span>·</span><span>◆</span>
+      </div>
+    </div>
+  <!-- ★ 侧栏常驻的「当前演唱者」（G3，2026-10-01）。
+       为什么放在侧栏、而不是只放进设置页：
+         第 05 屏画的是**某一个人**的记录。换人入口若只在设置页，
+         用户在 s5（或任何一屏）都没有办法知道屏幕上是谁的数据 ——
+         而"这是谁的数据"看不出来时，"数据对不对"根本无从判断。
+       ⚠️ 名字由 `js/shell.js` 的 `refreshWho()` 从 `/api/singer` 名册里取，
+          **不在这里写死**；取不到时显示 id（诚实），不留空白。 -->
+  <button class="who" id="whoBtn" type="button" title="当前演唱者">
+    <span class="k">Singer · 当前演唱者</span>
+    <b id="whoName">—</b>
+  </button>
+  <div class="account" id="accountRow" hidden>
+    <span class="account-k">ACCOUNT / 当前账号</span>
+    <b id="accountName">—</b>
+    <button class="account-out" id="logoutBtn" type="button">退出</button>
+  </div>
+  <!-- ★ 数据源徽标（2026-09-24 加）。`app.js` 的 `banner()` 一直在找 `#srcBadge`，
+       而这个元素**以前根本不存在** —— 于是"当前是 mock 假数据"这件事
+       在界面上**完全看不出来**：mock 能渲染出一整套看着很正常的界面
+       （连 78 分的报告都有），答辩现场谁也分不出屏幕上的分数是不是真算出来的。
+       默认已经是 `?src=api`（真实后端）；带 `?src=mock` 时这个徽标会变红。 -->
+  <div id="srcBadge" class="srcbadge">数据源：真实后端</div>
+  </aside>
+
+  <main>
+    <!-- 视图挂载点：由 js/router.js 按 #sN 动态插入 <section id="sN" class="screen on"> -->
+    <div id="view" data-view=""></div>
+  </main>
+</div>
+
+<!-- 底部导航：参考 ignoredone 的白玻璃大胶囊（手机隐藏，用顶部导航） -->
+<div class="dock" id="dock">
+  <div class="dock-inner" id="dockInner">
+    <!-- 2026-10-21 v3：参考 ignoredone.space 的 .iq-inner：
+         白玻璃大胶囊（logo + 汉堡 + 导航），点开横向长成同材质的导航条。
+         不再停在侧栏里，避免压住“当前演唱者 / 数据源”。 -->
+    <button class="dock-main" id="dockMain" type="button" aria-expanded="false" aria-controls="dockScroll">
+      <svg class="dock-logo" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 1.2 18.8 10 10 18.8 1.2 10Z"/></svg>
+      <span class="dock-menu">
+        <svg class="dock-burger" viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 5.5h15M2.5 10h15M2.5 14.5h15"/></svg>
+        <span class="dm-zh">导航</span>
+      </span>
+    </button>
+    <button class="dock-arrow left" id="dockPrev" aria-label="向左滚动">
+      <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+    </button>
+    <div class="dock-scroll" id="dockScroll">
+      <div class="dock-page" id="dockPage">
+        <button data-s="s1" class="on">选择模式</button>
+        <button data-s="s2">开始练习</button>
+        <button data-s="s3">评测报告</button>
+        <button data-s="s4">复练对比</button>
+        <button data-s="s5">成长档案</button>
+        <button data-s="s7">设置</button>
+      </div>
+    </div>
+    <button class="dock-arrow right" id="dockNext" aria-label="向右滚动">
+      <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+    </button>
+  </div>
+</div>
+
+<!-- 底部跑马灯 -->
+<div class="mq" aria-hidden="true">
+  <div class="mq-in" id="mqIn">
+    <span><svg class="st"><use href="#d-dia"/></svg>SingLens — Realtime Singing Analysis</span>
+    <span>Pitch Pipeline: YIN / PYIN</span>
+    <span><svg class="st"><use href="#d-dia"/></svg>Latency &lt; 200 ms</span>
+    <span>Local Only · No Upload</span>
+    <span><svg class="st"><use href="#d-dia"/></svg>Six Expression Metrics</span>
+    <span>唱准 · 跟上拍 · 有起伏 · 别抖</span>
+    <span><svg class="st"><use href="#d-dia"/></svg>Est. 2026 · SingLens</span>
+    <span>Signal Path: Mic → HPSS → Pitch → Score</span>
+  </div>
+</div>
+
+<!-- 分析中遮罩 -->
+<div class="veil" id="veil">
+  <div class="box">
+    <svg class="spin-mark"><use href="#d-ring"/></svg>
+    <h4>正在分析你的演唱…</h4>
+    <div class="sub2">Precise Pipeline · 0.21× Realtime</div>
+    <div class="steps">
+      <div class="done"><svg class="deco ic"><use href="#i-check"/></svg>提取音高轨迹</div>
+      <div class="done"><svg class="deco ic"><use href="#i-check"/></svg>切分每个音符</div>
+      <div><svg class="deco ic"><use href="#i-clock"/></svg>与参考旋律对齐</div>
+      <div><svg class="deco ic"><use href="#i-clock"/></svg>计算六个表现力指标</div>
+    </div>
+    <div class="esc">点击任意处关闭</div>
+  </div>
+</div>
+
+<script type="module">
+  import { initShell } from '/js/shell.js';
+  import '/js/app.js';
+  initShell();
+</script>
+</body>
+</html>

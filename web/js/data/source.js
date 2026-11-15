@@ -94,6 +94,18 @@ export class DataSource {
   /** 取完整报告 @returns {Promise<ScoreReport>} */
   async getReport(sessionUid) { throw new Error('not implemented'); }
 
+  /** 音频听感补充是否可用（实验；不参与评分） */
+  async audioCoachStatus() { return { available: false, reason: '当前数据源不支持音频听感。' }; }
+
+  /** 让千问听当前这一遍的 8 秒以内片段；force=true 跳过缓存重新问 */
+  async audioCoachListen(sessionUid, opts = {}) { throw new Error('not implemented'); }
+
+  /** 千问音频 key 状态（只返回 hint，不回显 key） */
+  async audioCoachKeyStatus() { return { configured: false, source: 'none', hint: '', available: false }; }
+
+  async saveAudioCoachKey(key) { throw new Error('not implemented'); }
+  async clearAudioCoachKey() { throw new Error('not implemented'); }
+
   /** 复练对比 @returns {Promise<{base: ScoreReport, retry: ScoreReport, delta: Object}>} */
   async getComparison(sessionUid) { throw new Error('not implemented'); }
 

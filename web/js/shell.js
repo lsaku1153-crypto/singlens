@@ -1,11 +1,11 @@
-/**
+﻿/**
  * 壳自身的交互（与"屏内容"无关的那些）。
  *
  * 逐条对应 v7 稿 `<script>` 里靠前的部分：
  *   · 底部胶囊导航的展开/收起/左右滚动/滚轮横滚
  *   · 跑马灯内容复制一份（配合 translateX(-50%) 无缝循环）
  *   · 分析中遮罩（原型阶段点一下关闭）
- *   · 专业术语开关（报告页与设置页同步）—— 见 shell.js 的 setPro
+ *   · 测量细节开关（报告「拆解」页；localStorage 记住）—— 见 shell.js 的 setPro
  *   · 侧栏「当前演唱者」常驻行（G3，2026-10-01）
  *
  * ⚠️ 与本文件无关的两件事已挪走：
@@ -208,7 +208,7 @@ export function initShell() {
   paintAccount();
   $('#logoutBtn')?.addEventListener('click', logout);
 
-  /* 专业术语：按钮 + 恢复上次的偏好（见上面两段的说明） */
+  /* 测量细节：按钮 + 恢复上次的偏好（见下面两段的说明） */
   bindProButton();
   restoreProFromConfig();
 
@@ -220,7 +220,8 @@ export function initShell() {
 
 function initSignalSpot() {
   const spot = document.querySelector('.bgfx .spot');
-  if (!spot) return;
+  const lines = document.querySelector('.bgfx .bg-lines');
+  if (!spot && !lines) return;
   if (!window.matchMedia || !window.matchMedia('(pointer:fine)').matches) return;
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   let tx = window.innerWidth * 0.68;
@@ -231,7 +232,12 @@ function initSignalSpot() {
   const paint = () => {
     x += (tx - x) * 0.14;
     y += (ty - y) * 0.14;
-    spot.style.transform = `translate3d(${x}px,${y}px,0)`;
+    if (spot) spot.style.transform = `translate3d(${x}px,${y}px,0)`;
+    if (lines) {
+      const px = (x / Math.max(1, window.innerWidth) - 0.5) * -14;
+      const py = (y / Math.max(1, window.innerHeight) - 0.5) * -10;
+      lines.style.transform = `translate3d(${px.toFixed(2)}px,${py.toFixed(2)}px,0)`;
+    }
     if (Math.abs(tx - x) > 0.4 || Math.abs(ty - y) > 0.4) {
       raf = requestAnimationFrame(paint);
     } else {
@@ -239,7 +245,7 @@ function initSignalSpot() {
     }
   };
   const kick = () => { if (!raf) raf = requestAnimationFrame(paint); };
-  spot.style.transform = `translate3d(${x}px,${y}px,0)`;
+  if (spot) spot.style.transform = `translate3d(${x}px,${y}px,0)`;
   window.addEventListener('pointermove', (e) => {
     tx = e.clientX;
     ty = e.clientY;
@@ -256,43 +262,52 @@ export const refreshWhoRow = refreshWho;
 /** 分析中遮罩：显隐（B1-4 接真实分析进度时会用到） */
 export const veilOn = (on) => $('#veil')?.classList.toggle('on', !!on);
 
-/* ---------- 专业术语开关（报告页与设置页同步） ---------- */
+/* ---------- 测量细节开关（报告「拆解」页） ---------- */
 let proOn = false;
 export const isPro = () => proOn;
-
-/**
- * 保存偏好用的回调 —— 由 `bindings.js`（唯一的数据层使用者）注册进来。
- *
- * ★ 为什么要有这个（2026-10-01）：报告页那个按钮原来**只切内存里的
- *   `proOn` 和 body 的 class，从来没存过**。于是"打开专业术语→刷新→又没了"，
- *   用户会认为这个开关记不住事。而 `shell.js` 是壳，不直接碰数据层
- *   （数据源只在 `bindings.js` 里 import），所以这里留一个口子给它。
- */
-let proSaver = null;
-export function setProPersister(fn) { proSaver = typeof fn === 'function' ? fn : null; }
+const PRO_KEY = 'sl.pro';
 
 export function setPro(on, { persist = false } = {}) {
   proOn = !!on;
   document.body.classList.toggle('pro', proOn);
-  // 两个入口的选中态都要跟上：报告页的按钮 + 设置页的开关
-  $('#proBtn')?.classList.toggle('on', proOn);
-  $('#proSw2')?.classList.toggle('on', proOn);
-  /* 只有**用户主动切换**时才写后端（`persist: true`）。
-     初始化恢复偏好时不能写 —— 那会把"读到的值"再写回去，
-     万一读失败就会把用户的偏好覆盖成默认值。 */
-  if (persist && proSaver) proSaver(proOn);
+  // 两处按钮共用同一个状态：报告「拆解」页的 #proBtn 与设置页的 jargon-toggle。
+  // 各写一套会把"点了一个、另一个没变"变成常态。
+  const btns = document.querySelectorAll('#proBtn, [data-pro-toggle]');
+  btns.forEach((btn) => {
+    btn.classList.toggle('on', proOn);
+    btn.setAttribute('aria-pressed', proOn ? 'true' : 'false');
+    const label = btn.querySelector('.probtn-label');
+    if (label) label.textContent = proOn ? '隐藏测量细节' : '显示测量细节';
+  });
+  /* 打开时把六块指标一起展开。否则用户停在「拆解」页点开关，
+     只有当前展开的那一块看得到专业行，其余五块仍折叠 —— 看起来像没生效。 */
+  if (proOn) {
+    document.querySelectorAll('#s3 details.acc').forEach((d) => {
+      if (!d.open) d.open = true;
+    });
+  }
+  /* 这是一个**浏览器级 UI 偏好**，不写 `/api/config`：
+     配置接口对普通 singer 是 403（管理员专属），此前普通账号点了会被静默拨回。
+     用 localStorage 只影响当前浏览器，不会把个人阅读偏好写成全站配置。 */
+  if (persist) {
+    try { localStorage.setItem(PRO_KEY, proOn ? '1' : '0'); } catch { /* 隐私模式 */ }
+  }
 }
 export function togglePro() { setPro(!proOn, { persist: true }); }
 
 /**
- * 启动时按**后端存下来的偏好**恢复术语开关（2026-10-01）。
+ * 启动时恢复上次的测量细节状态。
  *
- * ★ 为什么必须补这一步：`show_jargon` 一直是存住的，但**从来没有人读它** ——
- *   用户上次打开了专业术语，刷新之后 `body.pro` 又是空的，四块解释再次消失。
- *   "设置能保存、但保存了没用"比"设置不保存"更难发现：界面上按钮是亮的，
- *   只有真去看那四块内容才知道没生效。
+ * 优先读 localStorage（普通账号也能记住）；没有本地记录时，兼容旧版本
+ * 读一次后端 `feedback.show_jargon`（管理员之前保存过的值）。
  */
 export async function restoreProFromConfig() {
+  let local = null;
+  try { local = localStorage.getItem(PRO_KEY); } catch { /* 隐私模式 */ }
+  if (local === '1' || local === '0') {
+    setPro(local === '1');
+    return;
+  }
   try {
     const { source } = await import('./data/index.js');
     const cfg = await source.getConfig();
@@ -303,11 +318,11 @@ export async function restoreProFromConfig() {
   }
 }
 
-/* ---------- 报告页右上角那个「显示专业术语」按钮 ----------
+/* ---------- 报告「03 拆解」页的「显示测量细节」按钮 ----------
    ★ 2026-10-01：它以前**完全没有绑定**（全仓只有本文件读过它的 class）。
    v7 稿原本是 `proBtn.onclick = () => setPro(...)`，拆壳（split_v7）时丢了，
    而 `.jargon` 是 `display:none`（要 `body.pro`）⇒ 那四块专业说法永远看不到。
-   全仓只有这里读它，所以接线也放在这里 —— 和 `setPro` 挨着，改一处不会漏另一处。
+   2026-10-29：按钮从报告页头移到「拆解」页的工具栏；事件委托仍放在这里。
 
    ⚠️ 为什么用**事件委托**挂在 document 上，而不是直接绑到按钮：
        `#proBtn` 在 `views/s3.js` 里，而 s3 是**路由按需渲染**的 ——
@@ -318,7 +333,8 @@ export async function restoreProFromConfig() {
        实测过：直接 `addEventListener` 到按钮上时点击不触发，改成委托后正常。 */
 function bindProButton() {
   document.addEventListener('click', (e) => {
-    const btn = e.target && e.target.closest && e.target.closest('#proBtn');
+    const btn = e.target && e.target.closest
+      && e.target.closest('#proBtn, [data-pro-toggle]');
     if (btn) togglePro();
   });
 }
@@ -329,3 +345,4 @@ window.togglePro = togglePro;
 /* ---------- 07 屏音域条：量程常量（B1-3 接设置时用） ---------- */
 export const RANGE_MIN = 40;
 export const RANGE_MAX = 84;
+

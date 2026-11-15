@@ -556,6 +556,26 @@ export class MockSource extends DataSource {
     return structuredClone(REPORT_MAIN);
   }
 
+  async audioCoachStatus() {
+    return { available: false, reason: 'mock 模式不发音频。' };
+  }
+
+  async audioCoachListen(uid, opts = {}) {
+    throw new Error('mock 模式不发音频');
+  }
+
+  async audioCoachKeyStatus() {
+    return { configured: false, source: 'mock', hint: '', model: 'mock', available: false };
+  }
+
+  async saveAudioCoachKey() {
+    throw new Error('mock 模式不保存 key');
+  }
+
+  async clearAudioCoachKey() {
+    throw new Error('mock 模式没有 key');
+  }
+
   async getComparison(uid) {
     await this.#wait();
     const base = REPORT_MAIN, retry = REPORT_RETRY;

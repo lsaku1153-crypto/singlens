@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SingLens · Agent 控制台</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/agent.css">
+</head>
+<body>
+  <header class="top">
+    <b class="brand">V <span>/</span> AGENT</b>
+    <span class="sess" id="sess">正在读取会话…</span>
+    <a class="back" href="/" title="回到练习端">练习端 ↗</a>
+  </header>
+
+  <main>
+    <section id="log" class="log" aria-live="polite" aria-label="对话记录">
+      <div class="hint">
+        <p>这是 Agent 控制台：它自己决定查哪条证据。</p>
+        <p class="dim">打开方式 <code>/agent?sess=&lt;会话 id&gt;</code>，或用当前浏览器里最近的那次练习。</p>
+        <div class="chips" id="chips"></div>
+      </div>
+    </section>
+
+    <form id="form" class="composer">
+      <input id="q" maxlength="400" autocomplete="off"
+             placeholder="问这一遍的任何问题，例如：第 2 句为什么低？"
+             aria-label="问题">
+      <button id="send" type="submit">发送</button>
+    </form>
+    <p class="foot dim">
+      回答里的数字只来自本次报告与工具返回；查不到会说“没测到”。
+    </p>
+  </main>
+
+  <script type="module" src="/js/views/agent_console.js"></script>
+</body>
+</html>

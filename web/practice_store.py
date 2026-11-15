@@ -135,6 +135,13 @@ def connect() -> sqlite3.Connection:
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
+    # 2026-11-13：WAL + 外键 + 忙等。
+    # 为什么：实时 WebSocket 写、Agent 线程读、报告页读会并发；
+    # 默认 rollback journal 下并发写只是概率性 `database is locked`，
+    # 一旦发生就是"练到一半保存失败"这种最难解释的故障。
+    con.execute("PRAGMA journal_mode=WAL")
+    con.execute("PRAGMA foreign_keys=ON")
+    con.execute("PRAGMA busy_timeout=5000")
     con.executescript(SCHEMA)
     _upgrade(con)
     return con

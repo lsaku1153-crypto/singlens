@@ -19,14 +19,10 @@ import { getSingerId, setSingerId, DEFAULT_SINGER as DEFAULT_SINGER_ID }
   from './data/identity.js';
 import { loadRoster, switchSinger, createSinger, renameSinger as renameSingerApi,
          removeSinger } from './data/roster.js';
-/* ★ 「显示专业术语」的**唯一开关**（2026-10-01）。
-   以前这里没有 import，两个入口各自为政：报告页那个按钮**压根没绑**
-   （全仓只有 `shell.js` 读过 `#proBtn` 的 class），设置页那个被 `bindSw`
-   覆盖掉内联 `onclick="togglePro(this)"` 之后只剩"切自己的 class + 存后端" ——
-   而 `setPro()`（唯一会设置 `body.pro` 的地方）谁都没调。
-   结果：`.jargon` 是 `display:none`（要 `body.pro`），**四块专业术语永远看不到**，
-   而 `shell.js` 的注释还写着"报告页与设置页同步"。 */
-import { setPro, togglePro, setProPersister, veilOn } from './shell.js';
+/* 测量细节开关（报告「拆解」页）。
+   它只切换 body.pro 与详情展开，不参与评分；偏好存在 localStorage，
+   因为 /api/config 的写接口是管理员专属 —— 普通账号走配置会被 403 拨回。 */
+import { veilOn } from './shell.js';
 import { currentUser } from './auth.js';
 
 const setText = (root, key, text) => {
@@ -808,6 +804,7 @@ async function s3(root, ctx) {
   renderProblems(root, rep);
   initCoachChat(root, rep, uid, pager, source);
   renderCoach(root, rep);
+  void initAudioListen(root, rep, uid, source);
   // ★ 练习计划（B1）：放在最后，因为它是**收敛**层 ——
   //   上面三块是"这一遍发生了什么"，这一块是"下一遍只改哪一件事"。
   renderPracticePlan(root, rep, source, uid);
@@ -1400,6 +1397,24 @@ function renderAccBlocks(root, rep) {
   <div class="body">${body.join('\n    ')}</div>
 </details>`;
   }).join('\n');
+
+  /* 用户已经在「测量细节」模式下时，新报告/切回来也保持六块全展开。
+     否则 `body.pro` 还在，但重建 DOM 后只默认展开第一块，
+     专业行又只剩一条可见。 */
+  if (document.body.classList.contains('pro')) {
+    wrap.querySelectorAll('details.acc').forEach((d) => { d.open = true; });
+  }
+
+  // 开关在 s3 里，但 body.pro 可能在进屏前就由配置恢复了；
+  // 这里同步按钮文字/选中态，别让“已开但写着显示”并存。
+  const proBtn = root.querySelector('#proBtn');
+  if (proBtn) {
+    const on = document.body.classList.contains('pro');
+    proBtn.classList.toggle('on', on);
+    proBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    const lab = proBtn.querySelector('.probtn-label');
+    if (lab) lab.textContent = on ? '隐藏测量细节' : '显示测量细节';
+  }
 }
 
 /**
@@ -1418,7 +1433,7 @@ function stopSeg() {
   segKey = '';
   document.querySelectorAll('[data-segbtn]').forEach((b) => {
     b.classList.remove('on');
-    if (b.dataset.segbtn === 'loop') b.textContent = '只练这一段';
+    if (b.dataset.segbtn === 'loop') b.textContent = '循环听';
   });
 }
 
@@ -1522,7 +1537,7 @@ function renderProblems(root, rep) {
     <button class="pbtn" data-segbtn="play" data-i="${i}"
       title="${full ? '放你唱的整句（前后各多放 0.4 秒）' : '放你唱的这几秒（前后各多放 0.4 秒）'}">${full ? '听整句' : '听这一段'}</button>
     <button class="pbtn" data-segbtn="loop" data-i="${i}"
-      title="循环放问题所在的这几个音，跟着它反复练 —— 再点一次停">只练这几个音</button>
+      title="循环播放这几个音，只用于试听；跟唱练这一段请用「02 下一遍」的「练这一句」">循环听</button>
   </span>` : '';
     return `<div class="problem">
   <span class="lvl ${p.severity === 'HIGH' ? 'L-bad' : 'L-mid'}">${esc(KIND[p.kind] || p.kind || '问题')}</span>
@@ -1549,6 +1564,10 @@ function renderProblems(root, rep) {
     });
   }
 
+  const hasPlan = !!(rep.practice_plan && rep.practice_plan.focus);
+  const canMicro = !!(rep.practice_card && rep.practice_card.segment
+    && Array.isArray(rep.practice_card.segment.notes)
+    && rep.practice_card.segment.notes.length >= 2);
   if (title) {
     /* ★ 标题要跟着**计划卡**走（2026-10-01，B1）。
        原来写「重点练这 N 段就够了」—— 那是一句**并列的处方**，
@@ -1558,7 +1577,6 @@ function renderProblems(root, rep) {
        现在这块的定位改成「**依据**」：它是上面那条建议落在哪几个音上。
        ⚠️ 有 `focus` 时才这么写 —— 没有计划卡时（老报告/取不到）不能
           引用一张不存在的卡，那就退回原来的说法。 */
-    const hasPlan = !!(rep.practice_plan && rep.practice_plan.focus);
     const n = ps.length;
     if (!n) {
       title.textContent = '这一次没有成段的问题';
@@ -1567,6 +1585,23 @@ function renderProblems(root, rep) {
     } else {
       title.textContent = `重点练这${n === 1 ? '一' : n + ''}段就够了`;
     }
+  }
+
+  /* 「循环听」只是试听；真正进微练习的入口在「02 下一遍」。
+     这里给一个直接跳过去并触发「练这一句」的入口，避免用户把
+     循环按钮误当成微练习。 */
+  const hint = root.querySelector('[data-b="problem-hint"]');
+  const gotoPractice = root.querySelector('[data-b="problem-goto-practice"]');
+  if (hint) hint.hidden = !(hasPlan && canMicro && ps.length > 0);
+  if (gotoPractice) {
+    gotoPractice.onclick = () => {
+      const coachTab = root.querySelector('[data-rep-page-btn="coach"]');
+      if (coachTab) coachTab.click();
+      setTimeout(() => {
+        const planBtn = root.querySelector('[data-b="plan-body"] .plan-practice .btn');
+        if (planBtn) planBtn.click();
+      }, 120);
+    };
   }
   if (empty) empty.hidden = ps.length > 0;
 }
@@ -1694,6 +1729,202 @@ function noteRangeAnnotator(rep) {
  * 分项才用模板。而这一段从没被显示过 —— 页面上一直是 v7 稿的四段冻结文案，
  * 里面还带着具体数字（"22 秒到 31 秒那段副歌"），对不上任何一次真实评测。
  */
+/**
+ * 实验：千问音频听感。
+ *
+ * 这不是评分器：只把当前会话的 8 秒以内问题片段发给千问，拿到一段自由听感。
+ * 默认隐藏；服务端没 key、mock 模式、或这条录音已不在本机时不显示。
+ * 发送前必须勾选同意，点击才发 —— 不在报告加载时偷偷发。
+ */
+async function initAudioListen(root, rep, uid, source) {
+  const card = root.querySelector('[data-b="audio-listen"]');
+  if (!card) return;
+  const canAudio = !!uid && !!((rep.meta || {}).audio_available);
+  if (!canAudio) { card.hidden = true; return; }
+
+  let st = null;
+  try {
+    st = await source.audioCoachStatus();
+  } catch (e) {
+    console.warn('[s3] 音频听感状态读取失败：', e.message);
+  }
+  if (!st || !st.available) { card.hidden = true; return; }
+
+  const consent = card.querySelector('[data-b="audio-consent"]');
+  const btn = card.querySelector('[data-b="audio-listen-btn"]');
+  const rerun = card.querySelector('[data-b="audio-rerun"]');
+  const meta = card.querySelector('[data-b="audio-listen-meta"]');
+  const out = card.querySelector('[data-b="audio-listen-out"]');
+  if (!consent || !btn || !out) return;
+
+  card.hidden = false;
+  const maxSec = Number(st.max_clip_seconds) || 8;
+  const baseMeta = `最多 ${maxSec.toFixed(0)} 秒 · ${st.model || 'qwen'} · 不改分`;
+  if (meta) meta.textContent = baseMeta;
+
+  let last = null;      // 上一次千问结果；再点主按钮 = 播放这一遍片段
+  let player = null;
+  let busy = false;
+
+  const syncBtn = () => {
+    btn.disabled = !consent.checked || busy;
+    if (rerun) rerun.disabled = !consent.checked || busy;
+  };
+  consent.addEventListener('change', syncBtn);
+  syncBtn();
+
+  const stopPlayer = () => {
+    if (player) {
+      try { player.pause(); } catch { /* ignore */ }
+      player = null;
+    }
+    if (last) btn.textContent = '再听一遍片段';
+    if (meta) meta.textContent = baseMeta;
+  };
+
+  const playClip = (r) => {
+    if (player) { stopPlayer(); return; }
+    const a = Number(r.clip_start_ms);
+    const b = Number(r.clip_end_ms);
+    if (!(b > a)) {
+      btn.textContent = '这一遍没有可放的片段';
+      return;
+    }
+    const sid = rep.singer_id || singerId();
+    const qs = new URLSearchParams({
+      singer_id: sid,
+      from_ms: String(Math.round(a)),
+      to_ms: String(Math.round(b)),
+      normalize: '1',
+    });
+    const au = new Audio(`/api/session/${encodeURIComponent(uid)}/audio?${qs}`);
+    player = au;
+    btn.textContent = '停止播放';
+    if (meta) meta.textContent = '正在播放这一遍的片段（已增强音量）…';
+    au.onended = () => {
+      player = null;
+      btn.textContent = '再听一遍片段';
+      if (meta) meta.textContent = baseMeta;
+    };
+    au.onerror = () => {
+      player = null;
+      btn.textContent = '这段录音取不到了';
+      if (meta) meta.textContent = '这一遍录音可能已被清理。';
+      setTimeout(() => {
+        btn.textContent = '再听一遍片段';
+        if (meta) meta.textContent = baseMeta;
+      }, 2200);
+    };
+    au.play().catch(() => au.onerror());
+  };
+
+  const runQwen = async (force = false) => {
+    if (busy || !consent.checked) return;
+    stopPlayer();
+    busy = true;
+    last = null;
+    if (rerun) rerun.hidden = true;
+    syncBtn();
+    btn.textContent = force ? '正在重新听…' : '正在听…';
+    if (meta) meta.textContent = force
+      ? '正在换一个角度重新听，并重写建议…'
+      : '正在听这一小段，并想一条下一遍的动作…';
+    out.hidden = true;
+    try {
+      const r = await source.audioCoachListen(uid, { force });
+      if (!r || !r.observation) throw new Error('千问没有返回可用听感。');
+      last = r;
+      paint(r);
+      btn.textContent = '再听一遍片段';
+      if (rerun) rerun.hidden = false;
+    } catch (e) {
+      out.replaceChildren();
+      const err = document.createElement('div');
+      err.className = 'audio-quote';
+      err.textContent = `这次没听成：${e.message || '服务暂时不可用'}`;
+      out.append(err);
+      out.hidden = false;
+      btn.textContent = '再试一次';
+    } finally {
+      busy = false;
+      if (meta) meta.textContent = `最多 ${maxSec.toFixed(0)} 秒 · ${st.model || 'qwen'} · 不改分`;
+      syncBtn();
+    }
+  };
+
+  btn.addEventListener('click', () => {
+    if (!consent.checked) return;
+    if (last) { playClip(last); return; }
+    runQwen(false);
+  });
+  if (rerun) {
+    rerun.addEventListener('click', () => runQwen(true));
+  }
+
+  const paint = (r) => {
+    out.replaceChildren();
+    const heard = document.createElement('div');
+    heard.className = 'audio-heard-k';
+    heard.textContent = '千问听到的';
+    out.append(heard);
+
+    const facetEntries = (r.facets && typeof r.facets === 'object')
+      ? Object.entries(r.facets).filter(([, v]) => v)
+      : [];
+
+    if (facetEntries.length >= 3) {
+      const f = document.createElement('div');
+      f.className = 'audio-facets';
+      for (const [k, v] of facetEntries) {
+        const chip = document.createElement('span');
+        const b = document.createElement('b');
+        b.textContent = k;
+        chip.append(b, document.createTextNode(v));
+        f.append(chip);
+      }
+      out.append(f);
+    } else {
+      // 模型没按三类标签写时，保留原话，绝不丢听感。
+      const q = document.createElement('div');
+      q.className = 'audio-quote';
+      q.textContent = `“${r.observation}”`;
+      out.append(q);
+    }
+
+    if (r.advice && r.advice.advice) {
+      const box = document.createElement('div');
+      box.className = 'audio-advice';
+      const k = document.createElement('span');
+      k.className = 'audio-advice-k';
+      k.textContent = '下一遍可以这样试';
+      const p = document.createElement('p');
+      p.textContent = r.advice.advice;
+      box.append(k, p);
+      if (r.advice.check) {
+        const chk = document.createElement('div');
+        chk.className = 'audio-advice-check';
+        chk.textContent = `做到：${r.advice.check}`;
+        box.append(chk);
+      }
+      out.append(box);
+    } else if (r.advice_error) {
+      const note = document.createElement('div');
+      note.className = 'audio-advice-note';
+      note.textContent = r.advice_error;
+      out.append(note);
+    }
+
+    const src = document.createElement('div');
+    src.className = 'audio-src';
+    const secs = Math.max(0, (Number(r.clip_end_ms) - Number(r.clip_start_ms)) / 1000);
+    src.textContent = `${r.model || 'qwen'} · 片段 ${secs.toFixed(1)}s`
+      + (r.cached ? ' · 已缓存' : '')
+      + ' · 实验听感 + 建议，不改分';
+    out.append(src);
+    out.hidden = false;
+  };
+}
+
 function renderCoach(root, rep) {
   const body = root.querySelector('[data-b="coach-body"]');
   if (!body) return;
@@ -2208,6 +2439,17 @@ function initReportPager(root, ctx) {
       b.setAttribute('aria-selected', on ? 'true' : 'false');
       b.tabIndex = on ? 0 : -1;
     });
+    // 窄屏上分页条会横向滚动；不把当前 tab 滚进来，用户会看到
+    // "01 02 03 04" 却找不到自己点开的 "05 追问"。
+    const activeBtn = buttons.find((b) => b.dataset.repPageBtn === page);
+    const jumps = nav.querySelector('.rep-jumps');
+    if (activeBtn && jumps) {
+      const jr = jumps.getBoundingClientRect();
+      const br = activeBtn.getBoundingClientRect();
+      if (br.left < jr.left || br.right > jr.right) {
+        jumps.scrollLeft += (br.left - jr.left) - (jr.width - br.width) / 2;
+      }
+    }
     arrows.forEach((a) => {
       const dir = Number(a.dataset.repStep) || 0;
       a.disabled = (dir < 0 && index === 0) || (dir > 0 && index === REP_PAGES.length - 1);
@@ -2350,7 +2592,14 @@ function initCoachChat(root, rep, uid, pager, source) {
       } else if (m.mode === 'rule_fallback') {
         const note = document.createElement('div');
         note.className = 'ask-mode';
-        note.textContent = '离线教练 · 未调用大模型（报告数字仍来自本次测量）';
+        const why = String(m.fallback_reason || '');
+        // 规则版现在有三种来源：没 key / Agent 故障 / 模型答案没过校验。
+        // 旧文案一律写"未调用大模型"，后两种是假话（模型调过、只是没采用）。
+        const offline = /没配\s*API\s*key|没有\s*API\s*key|未配置\s*key|no\s*key/i.test(why);
+        note.textContent = offline
+          ? '离线教练 · 未调用大模型（报告数字仍来自本次测量）'
+          : '规则版 · 这次没有采用模型回答（报告数字仍来自本次测量）';
+        if (why) note.title = why;
         box.appendChild(note);
       }
       // 从用户自己的话里提取的候选偏好：只提议，必须用户点“记住”。
@@ -2373,10 +2622,15 @@ function initCoachChat(root, rep, uid, pager, source) {
           b.onclick = async () => {
             b.disabled = true;
             try {
-              if (typeof source.addProfileNote !== 'function') {
+              // 候选来自 Agent 的 propose_preference：走审批端点；
+              // mock/旧数据源没有 applyPreference 时退回通用画像备注。
+              if (typeof source.applyPreference === 'function') {
+                await source.applyPreference(uid, text);
+              } else if (typeof source.addProfileNote === 'function') {
+                await source.addProfileNote(getSingerId(), text);
+              } else {
                 throw new Error('当前数据源不支持保存偏好');
               }
-              await source.addProfileNote(getSingerId(), text);
               b.textContent = '已记住';
               row.classList.add('on');
             } catch (e) {
@@ -2451,6 +2705,17 @@ function initCoachChat(root, rep, uid, pager, source) {
     scroll();
   };
 
+  const clearAsk = root.querySelector('[data-b="ask-clear"]');
+  if (clearAsk) {
+    clearAsk.onclick = () => {
+      if (busy || !history.length) return;
+      history = [];
+      save();
+      render();
+      try { input.focus(); } catch { /* ignore */ }
+    };
+  }
+
   const ask = async (text, focus) => {
     const msg = String(text || '').trim().slice(0, 400);
     if (!msg || busy) return;
@@ -2465,11 +2730,37 @@ function initCoachChat(root, rep, uid, pager, source) {
     history.push({ role: 'user', content: msg });
     render();
     input.value = '';
+    let live = null;
     try {
+      // render() 的 busy 占位是"正在查这份报告…"；用可流式气泡替换它。
+      const ph = [...log.querySelectorAll('.ask-msg.coach')].pop();
+      if (ph && ph.textContent.includes('正在查')) ph.remove();
+      live = document.createElement('div');
+      live.className = 'ask-msg coach streaming';
+      live.setAttribute('aria-live', 'off');
+      const who = document.createElement('span');
+      who.className = 'ask-who';
+      who.textContent = 'V';
+      const body = document.createElement('div');
+      body.className = 'ask-stream-body';
+      body.textContent = '正在查这份报告…';
+      live.append(who, body);
+      log.appendChild(live);
+      scroll();
+      let streamed = '';
       const r = await source.coachChat(uid, msg,
         history.filter((m) => m.role === 'user' || m.role === 'assistant')
           .slice(-6).map((m) => ({ role: m.role, content: m.content })),
-        focus || null);
+        focus || null,
+        {
+          onDelta: (text) => {
+            streamed += text;
+            body.textContent = streamed;
+            scroll();
+          },
+        });
+      live.remove();
+      live = null;
       history.push({
         role: 'assistant',
         content: String(r.answer || '这次没有拿到回答。'),
@@ -2484,6 +2775,7 @@ function initCoachChat(root, rep, uid, pager, source) {
         fallback_reason: r.fallback_reason || '',
       });
     } catch (e) {
+      if (live) { live.remove(); live = null; }
       history.push({
         role: 'assistant',
         content: `教练暂时回答不了：${e.message}`,
@@ -3202,7 +3494,7 @@ async function s5(root, ctx) {
           : (v > 0 ? `涨了 ${v.toFixed(0)} ${unit}` : `降了 ${Math.abs(v).toFixed(0)} ${unit}`);
         const skipped = total.filter((v) => v === null || v === undefined).length;
         note.innerHTML =
-          `这一首（${g.label}）练了 <b>${g.idx.length}</b> 次，`
+          `这一首（${esc(g.label)}）练了 <b>${g.idx.length}</b> 次，`
           + (Math.abs(dt) < 0.5
             ? `总分基本没变（<b>${t[t.length - 1][1].toFixed(0)}</b>）`
             : `总分 <b>${t[0][1].toFixed(0)} → ${t[t.length - 1][1].toFixed(0)}</b>`)
@@ -3214,7 +3506,7 @@ async function s5(root, ctx) {
               + `曲线在那里是断开的 —— <b>断线表示"没测"，不是"得了 0 分"</b>。</span>`
             : '');
       } else if (t.length === 1) {
-        note.innerHTML = `这一首（${g.label}）只练了 <b>1</b> 次，还看不出趋势。`
+        note.innerHTML = `这一首（${esc(g.label)}）只练了 <b>1</b> 次，还看不出趋势。`
           + `再多练几次这条线才有意义。`
           + (groups.length > 1
             ? `<br><span style="color:var(--ink3)">你一共练过 ${groups.length} 个参考，`
@@ -4069,6 +4361,14 @@ async function s7(root, ctx) {
   try { startTab = sessionStorage.getItem('sl.settingsTab') || 'common'; } catch { /* 隐私模式 */ }
   showSettings(startTab);
 
+  /* 设置页的「显示测量细节」与报告页共用 body.pro。
+     s7 是按需渲染的，按钮是新元素 —— 进屏时把当前状态刷上去，
+     否则用户在报告页打开后进设置，会看到一颗"关着"的开关。 */
+  try {
+    const shell = await import('./shell.js');
+    shell.setPro(document.body.classList.contains('pro'));
+  } catch { /* 拿不到就保持默认，不影响其它设置项 */ }
+
   const { source } = await import('./data/index.js');
   const charts = await import('./charts.js');
 
@@ -4413,12 +4713,8 @@ async function s7(root, ctx) {
   /**
    * 开关绑定。
    *
-   * ★ `onChange` 这个回调是 2026-10-01 加的，为了修一个真 bug：
-   *   「显示专业术语」这一项**不只是存一个偏好** —— 它要切换
-   *   `<body class="pro">`，而 `.jargon { display:none }` 正是挂在那上面。
-   *   原来的写法（切自己的 class + 存后端）看起来一切正常：按钮亮了、
-   *   刷新后还是亮的（后端存住了）—— 但**页面上什么都没变**。
-   *   这正是本项目最贵的那类 bug：**看得见、动不了，而且看起来是好的**。
+   * ★ `onChange` 用来同步那些**不只是存偏好**的开关；保存失败时
+   *   会把开关拨回去，避免界面显示“已开启”而后端仍是关的。
    */
   const bindSw = (key, get, group, field, onChange) => {
     const el = root.querySelector(`[data-b="${key}"]`);
@@ -4443,10 +4739,6 @@ async function s7(root, ctx) {
   };
   const fb = cfg.feedback || {};
   bindSw('cfg-ai-comment', () => fb.ai_comment, 'feedback', 'ai_comment');
-  /* ↓ 术语开关：必须真的切 `body.pro`，否则四块专业术语永远看不到。
-     它和报告页那个按钮是**同一个开关的两张脸**，所以两处都走
-     `setProPersister` 这一条保存路径 —— 各存各的必然有一天不同步。 */
-  bindSw('cfg-jargon', () => fb.show_jargon, 'feedback', 'show_jargon', setPro);
   /* 引导音轨音量：只影响播放的 4 拍 + 旋律，不碰麦克风、不影响评分。
      `oninput` 只更新显示，`onchange` 才写库 —— 拖动时不该每 5% 打一次请求。 */
   const volEl = root.querySelector('[data-b="cfg-guide-volume"]');
@@ -4546,12 +4838,6 @@ async function s7(root, ctx) {
       };
     });
   }
-  setProPersister(async (on) => {
-    const okSaved = await saveAndReport({ feedback: { show_jargon: on } });
-    // 存不上就把界面拨回去：留着"已开启"而后端是关的，下次打开又变回去，
-    // 用户只会觉得"这软件记不住设置"（而实际是没存上）。
-    if (!okSaved) setPro(!on);
-  });
   /* 2026-10-18：`cfg-colorize` 那一行设置**没有消费者**（`colorize_deviation`
      从来没有被图表读过），已从 s7 删掉。这里不再绑一个不存在的开关 ——
      "看得见、动不了"的开关比没有更坏。 */
@@ -4640,6 +4926,78 @@ async function s7(root, ctx) {
         if (sw) sw.classList.remove('on');
       } catch (e) {
         llmSay(`清除失败：${e.message}`, 'bad');
+      }
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // 千问音频 key（2026-10-29）
+  //
+  // 和 DeepSeek 文本 key 是两把不同的 key、两个不同的文件。
+  // 只返回 hint；保存前后端会真发一句文本验证，绝不发音频。
+  // ══════════════════════════════════════════════════════════
+  const qwenInput = root.querySelector('[data-b="qwen-key-input"]');
+  const qwenBtn = root.querySelector('[data-b="qwen-key-save"]');
+  const qwenClear = root.querySelector('[data-b="qwen-key-clear"]');
+
+  function qwenSay(text, kind) {
+    const el = root.querySelector('[data-b="qwen-key-status"]');
+    if (!el) return;
+    el.textContent = text;
+    el.style.color = kind === 'ok' ? 'var(--ok, #2e7d52)'
+      : kind === 'bad' ? 'var(--acc-ink)' : 'var(--ink3)';
+  }
+
+  async function refreshQwen() {
+    try {
+      const s = await source.audioCoachKeyStatus();
+      if (s && s.source === 'mock') {
+        qwenSay('mock 模式：不连后端，配不了 key（换成 ?src=api 再试）', 'idle');
+        return;
+      }
+      if (!s || !s.configured) {
+        qwenSay('当前没配 DashScope key —— 报告页不会出现「千问听感」卡片。', 'idle');
+        return;
+      }
+      const where = s.source === 'env' ? '环境变量' : '本机文件';
+      qwenSay(`当前已配置（${where}，${s.hint || '—'}）· 模型 ${s.model}`,
+        s.available ? 'ok' : 'bad');
+    } catch (e) {
+      qwenSay(`读不到千问 key 状态：${e.message}`, 'bad');
+    }
+  }
+  refreshQwen();
+
+  if (qwenBtn) {
+    qwenBtn.addEventListener('click', async () => {
+      const k = (qwenInput && qwenInput.value || '').trim();
+      if (!k) { qwenSay('先粘贴 DashScope key 再点保存。', 'bad'); return; }
+      if (qwenInput) qwenInput.value = '';  // 别让 key 留在输入框/DOM 里
+      qwenBtn.disabled = true;
+      qwenSay('正在验证这把 DashScope key（只发一句文本，不发音频）…', 'idle');
+      try {
+        const r = await source.saveAudioCoachKey(k);
+        qwenSay(`已保存并验证通过（${r.hint || '—'}）· 模型 ${r.model || 'qwen'}`,
+          'ok');
+      } catch (e) {
+        qwenSay(`没能保存：${e.message}（请重新粘贴 key 再试）`, 'bad');
+      } finally {
+        qwenBtn.disabled = false;
+      }
+    });
+  }
+
+  if (qwenClear) {
+    qwenClear.addEventListener('click', async () => {
+      if (!window.confirm('清掉本机保存的 DashScope key？\n'
+        + '清掉后报告页的「千问听感」卡片会消失；DeepSeek 的总评不受影响。')) return;
+      try {
+        const r = await source.clearAudioCoachKey();
+        qwenSay(r.cleared
+          ? '已清除。报告页不会再出现「千问听感」。'
+          : '没有可清除的 key（可能来自环境变量，程序改不了）。', 'idle');
+      } catch (e) {
+        qwenSay(`清除失败：${e.message}`, 'bad');
       }
     });
   }

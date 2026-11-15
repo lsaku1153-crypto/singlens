@@ -864,6 +864,21 @@ app = FastAPI(title="SingLens API", version="1.0",
               redoc_url=None,
               openapi_url=("/openapi.json" if os.environ.get("SINGLENS_DOCS") else None))
 
+# ★ Agent 端点（T3，2026-11-12）：独立 router，旧 `/coach/chat` 原样保留，
+#   前端还没接新端点时两条路都能走；回滚只需不挂这个 router。
+from web import agent_api  # noqa: E402
+app.include_router(agent_api.router)
+
+# 页面路由（2026-11-13 从本文件拆出，路径与行为不变）
+from web.routers import pages as _pages  # noqa: E402
+app.include_router(_pages.router)
+# 配置 / LLM key（2026-11-13 拆出）
+from web.routers import config as _config_routes  # noqa: E402
+app.include_router(_config_routes.router)
+# 登录/注册（2026-11-13 拆出）
+from web.routers import auth as _auth_routes  # noqa: E402
+app.include_router(_auth_routes.router)
+
 # ══════════════════════════════════════════════════════════════
 # 只服务"本机 / 本局域网"的守卫（2026-09-24，审计 §3.1、§5.6）
 #
@@ -1114,7 +1129,10 @@ from web import templates  # noqa: E402  （模式 B 两遍制的模板存储）
 #   那是"怕循环 import"的历史遗留；实际 practice_store 只依赖标准库。
 #   G3 之后读接口全部走它，散在各处的局部 import 只会让人以为它可以缺席。
 from web import practice_store  # noqa: E402
+# ★ 2026-11-13：配置落盘。只依赖标准库，读失败不会影响启动。
+from web import config_store  # noqa: E402
 from web import auth as auth_mod  # noqa: E402
+from web import audio_coach as audio_coach_mod  # noqa: E402
 app.include_router(experiment_router)
 
 
@@ -1129,8 +1147,11 @@ app.include_router(experiment_router)
 # ══════════════════════════════════════════════════════════════
 _AUTH_PRODUCT_PREFIXES = (
     "/api/session", "/api/singer", "/api/template", "/api/upload",
-    "/api/song", "/api/ai-sing", "/api/config", "/api/privacy",
-    "/api/references", "/api/bootstrap",
+    "/api/song", "/api/ai-sing", "/api/audio-coach",
+    "/api/config", "/api/privacy", "/api/references", "/api/bootstrap",
+    # Agent 的运行回放：trace 里有问题原文、歌词与工具结果，
+    # 以前不在这个列表里 → 不登录也能 GET。2026-11-14 补。
+    "/api/agent",
 )
 _AUTH_PUBLIC_PREFIXES = (
     "/api/auth", "/api/health", "/api/latency",
@@ -1193,9 +1214,9 @@ async def _account_guard(request: Request, call_next):
         path_sid = _auth_singer_in_path(path)
         if path_sid and path_sid != sid:
             return _auth_deny("不能访问其他演唱者的数据。", 403)
-        # 普通账号不能改全局配置、清空全库、删演唱者。
-        if ((request.method == "PUT" and path == "/api/config")
-                or (request.method == "POST" and path.startswith("/api/privacy/"))
+        # 普通账号可以调“体验类”配置（宽容度、音色、音域等），
+        # 但不能清空全库、删演唱者；具体的配置组白名单在 put_config 里。
+        if ((request.method == "POST" and path.startswith("/api/privacy/"))
                 or (request.method == "DELETE" and path.startswith("/api/singer/"))):
             return _auth_deny("这个操作需要管理员账号。", 403)
         # query 里的 singer_id 一律覆盖为当前用户；不能让前端自报身份。
@@ -1389,9 +1410,12 @@ CONFIG: dict = {
     },
     "privacy": {
         "record_dir": "./data/recordings/sessions/",
-        # ⚠️ 只描述**录音文件**。唱后解释/指导会走 LLM，报告文本/歌词/画像
-        #    文本会外发；不要把这个字段读成“整个系统不上传”。
+        # ⚠️ 只描述**默认行为**：录音文件默认留在本机。报告页可手动开启
+        #    “千问听感”，只发 8 秒以内问题片段；不要把这个字段读成
+        #    “任何情况下音频都不会离开本机”。
         "audio_local_only": True,
+        "audio_optional_upload": True,
+        "audio_upload_scope": "opt-in · <=8s problem clip · no scoring",
         "text_to_llm": True,              # 报告文本/歌词/画像文本会发给 LLM
         "used_bytes": 0,
         "sample_count": 0,
@@ -1403,6 +1427,20 @@ CONFIG: dict = {
     #     混在一起会让人以为"配了 key 也没用"。
     "llm_available": _llm_key_present(),
 }
+
+# ★ 2026-11-13：把上次保存的设置合进来。
+#   只接受已知键、且类型与默认值一致；`privacy.used_bytes/sample_count`
+#   是运行时统计，不读。文件损坏时静默用默认值 —— 设置丢了是小事，
+#   服务起不来是大事。
+try:
+    _saved_cfg = config_store.load(CONFIG)
+    for _grp, _kv in _saved_cfg.items():
+        if isinstance(CONFIG.get(_grp), dict):
+            CONFIG[_grp].update(_kv)
+    if _saved_cfg:
+        print(f"[SingLens] 已恢复 {len(_saved_cfg)} 组设置（data/config.json）")
+except Exception as _e:  # noqa: BLE001
+    print(f"[SingLens] ⚠️ 读取设置失败，用默认值：{_e}")
 
 
 def load_practice_history():
@@ -3709,11 +3747,14 @@ async def status(request: Request, uid: str):
 # ⑤ GET /api/session/{uid}/report
 # ══════════════════════════════════════════════════════════════
 @app.get("/api/session/{uid}/report")
-async def report(uid: str, singer_id: str = ""):
+async def report(req: Request, uid: str, singer_id: str = ""):
     # ★ 给了 singer_id 就校验归属（2026-10-01，见 `_assert_session_owner`）：
     #   前端"当前演唱者"在 localStorage、"当前会话"在 sessionStorage，
     #   两者可以不同步 ⇒ 否则会拿上一个人的会话 uid 去取报告。
-    _assert_session_owner(uid, singer_id)
+    #   admin 可以查看任意演唱者的报告；普通账号仍严格校验。
+    user = getattr(req.state, "user", None)
+    if not (user and user.get("role") == "admin"):
+        _assert_session_owner(uid, singer_id)
     sess = SESSIONS.get(uid)
     if sess is None:
         # ★ 回退到库里（2026-09-23）。落库时**存了完整报告**（report_json），
@@ -3768,6 +3809,52 @@ async def report(uid: str, singer_id: str = ""):
     sess.report = _ensure_plan_matches_scores(sess.report)
     sess.report = _ensure_practice_context(sess.report)
     return ok(_live_audio_meta(uid, sess.report))
+
+
+# ══════════════════════════════════════════════════════════════
+# Agent 层（T3，2026-11-12）
+# ══════════════════════════════════════════════════════════════
+# 为什么把这三个函数抽出来：
+#   · `_load_report_for_chat` 与 05 追问共用"补旧报告"的同一套口径；
+#   · `_recommend_candidates` 原来写在 recommendations_endpoint 里，
+#     Agent 要拿同样的候选，不能复制一份（复制迟早分叉）；
+#   · `_agent_context` 把画像/推荐**注入**给工具层，`analysis/agent/`
+#     因此不必 import 任何 web 模块，单测可以塞假实现。
+def _load_report_for_chat(uid: str):
+    sess = SESSIONS.get(uid)
+    rep = sess.report if sess is not None and sess.report is not None else None
+    if rep is None:
+        try:
+            rep = practice_store.load_report(uid)
+        except Exception as e:  # noqa: BLE001
+            print(f"[SingLens] ⚠️ 追问读报告失败（{uid}）：{e}")
+            rep = None
+    if not rep:
+        return None
+    try:
+        rep = _ensure_ktv(rep)
+        rep = _ensure_practice_context(rep)
+    except Exception:  # noqa: BLE001 —— 补不齐就按原样给，缺的字段工具会明说
+        pass
+    return rep
+
+
+def _recommend_candidates(sid: str) -> list[dict]:
+    """本机可推荐的曲目候选。实现在 web/agent_services.py，MCP 共用同一份。"""
+    from web import agent_services
+    return agent_services.recommend_candidates(sid)
+
+
+
+def _agent_context(uid: str, rep: dict, singer_id: str):
+    """把工具需要的服务注入进去；工具层不 import web。"""
+    from analysis.agent.contracts import ToolContext
+    from web import agent_services
+
+    sid = singer_id or (getattr(SESSIONS.get(uid), "singer_id", "") or "")
+    return ToolContext(report=rep, singer_id=sid, uid=uid,
+                       services=agent_services.build(sid, uid))
+
 
 
 @app.post("/api/session/{uid}/coach/chat")
@@ -3970,7 +4057,7 @@ def _live_audio_meta(uid: str, rep: dict) -> dict:
 # ══════════════════════════════════════════════════════════════
 @app.get("/api/session/{uid}/audio")
 async def session_audio(uid: str, from_ms: int = 0, to_ms: int = 0,
-                        singer_id: str = ""):
+                        singer_id: str = "", normalize: int = 0):
     """把这一遍录音的 `[from_ms, to_ms)` 切出来，返回 **wav 字节**。
 
     为什么要有它：报告页能说"第 3 句偏低"，但用户**听不到那一段** ——
@@ -4012,6 +4099,13 @@ async def session_audio(uid: str, from_ms: int = 0, to_ms: int = 0,
 
     i0, i1 = int(a / 1000 * sr), int(b / 1000 * sr)
     seg = np.clip(np.asarray(y[i0:i1], dtype="float32"), -1, 1)
+    # 报告页「听整句」保持原音量；千问卡片的“再听一遍片段”传 normalize=1，
+    # 把很轻的练习录音抬到能听清（最多 +12 dB，避免把底噪放大到刺耳）。
+    if normalize:
+        peak = float(np.max(np.abs(seg))) if len(seg) else 0.0
+        if peak > 0.001:
+            gain = min(4.0, 0.6 / peak)
+            seg = np.clip(seg * gain, -1, 1).astype("float32")
 
     import io as _io
     import soundfile as sf
@@ -4073,6 +4167,10 @@ async def delete_session_endpoint(uid: str, singer_id: str = ""):
     # 否则前端下一步去取报告会拿到内存里那份（而库里已经没有了 —— 前后不一致）
     SESSIONS.pop(uid, None)
     SINGERS.pop(singer_id, None)          # 档案缓存会过期（少了一条），清掉重算
+    try:
+        audio_coach_mod.forget_session(uid)
+    except Exception as e:  # noqa: BLE001
+        print(f"[SingLens] ⚠️ 清理音频听感缓存失败（{uid}）：{e}")
 
     _refresh_privacy()
     return ok({
@@ -4374,27 +4472,10 @@ def _style_label(dr, br):
 # 用户画像 P0（2026-10-26）
 # ────────────────────────────────────────────────────────────
 def _portrait_for(sid: str, limit: int = 500) -> dict:
-    """从库里已有的练习报告聚合画像。
+    """从库里已有的练习报告聚合画像。实现在 web/agent_services.py。"""
+    from web import agent_services
+    return agent_services.portrait_for(sid, limit)
 
-    ⚠️ 为什么这里要 load_report：`sessions_of` 的历史行只有分数/六指标，
-       `pitch.accuracy`、`pitch.stability`、`rhythm.tempo_ratio` 在完整
-       报告里；画像需要“偏低多少/稳不稳”，不能只看一个音准分。
-       只做一次只读聚合，不重新分析音频。
-    """
-    ss = practice_store.sessions_of(sid, min(500, max(1, int(limit))))
-    reports = []
-    for s in ss:
-        rep = practice_store.load_report(s.get("session_uid")) or {}
-        if not isinstance(rep, dict) or not rep:
-            continue
-        # 历史摘要里的时间/曲名比报告更可靠（旧报告可能没存 meta.created_at）
-        rep.setdefault("created_at", s.get("created_at"))
-        rep.setdefault("reference_title", s.get("reference_title"))
-        reports.append(rep)
-    prof = practice_store.get_profile(sid)
-    out = portrait_mod.build_portrait(reports, prof)
-    out["singer_id"] = sid
-    return out
 
 
 @app.get("/api/singer/{sid}/portrait")
@@ -4421,37 +4502,7 @@ async def recommendations_endpoint(sid: str):
     comfort = p.get("comfort") or prof.get("comfort")
     stated = dict(prof)
     stated["top_song"] = ((p.get("observed") or {}).get("habit") or {}).get("top_song") or ""
-    candidates = []
-    for rid in BUILTIN:
-        try:
-            ref = load_builtin(rid, first_start_ms=0)
-            candidates.append({
-                "kind": "builtin", "id": rid, "title": ref.title,
-                "notes": [{"midi": n.pitch_midi} for n in ref.notes],
-                "duration_ms": (ref.notes[-1].end_ms if ref.notes else 0),
-            })
-        except Exception:  # noqa: BLE001
-            continue
-    try:
-        for t in templates.list_templates(sid, 50):
-            title = str(t.get("title") or "").strip()
-            if not title or title.startswith("微练习"):
-                continue
-            try:
-                tpl = templates.load(t.get("template_id"))
-            except Exception:  # noqa: BLE001
-                tpl = None
-            if not tpl or not tpl.notes:
-                continue
-            candidates.append({
-                "kind": "template", "id": t.get("template_id"),
-                "title": title,
-                "source_kind": (t.get("source_kind") or tpl.source_kind or ""),
-                "notes": [{"midi": n.get("pitch_midi")} for n in tpl.notes],
-                "duration_ms": t.get("duration_ms"),
-            })
-    except Exception as e:  # noqa: BLE001
-        print(f"[SingLens] ⚠️ 读取模板推荐失败：{e}")
+    candidates = _recommend_candidates(sid)
     rec = recommender_mod.recommend(comfort, stated, candidates)
     rec["singer_id"] = sid
     return ok(rec)
@@ -4706,6 +4757,10 @@ async def delete_singer_endpoint(req: Request, sid: str):
                     "想清掉练习数据请用设置页的「清空所有录音与记录」，"
                     "或先新建一位再删这一位。", 409)
     r = practice_store.delete_singer(sid)
+    try:
+        audio_coach_mod.forget_singer(sid)
+    except Exception as e:  # noqa: BLE001
+        print(f"[SingLens] ⚠️ 清理音频听感缓存失败（{sid}）：{e}")
     # 内存缓存同步丢掉。缓存是只读的旧数据，不清的话
     # `cache_sessions` 会一直报不一致（而那是一条真的告警，不能被假警报淹没）。
     SINGERS.pop(sid, None)
@@ -5612,8 +5667,16 @@ async def purge_endpoint(req: Request):
     #    `GET /api/singer` 的 `cache_sessions` 会对不上库，那条告警会变成噪音）
     if target:
         SINGERS.pop(target, None)
+        try:
+            audio_coach_mod.forget_singer(target)
+        except Exception as e:  # noqa: BLE001
+            print(f"[SingLens] ⚠️ 清理音频听感缓存失败（{target}）：{e}")
     else:
         SINGERS.clear()
+        try:
+            audio_coach_mod.forget_all()
+        except Exception as e:  # noqa: BLE001
+            print(f"[SingLens] ⚠️ 清理音频听感缓存失败（all）：{e}")
 
     # ③ ★★ G13：**内存里的音频副本必须一起丢**。
     #
@@ -5687,6 +5750,19 @@ async def purge_endpoint(req: Request):
             "★ 但**这次的会话录音**（逐段复听用的）已经按会话号**精确删除**："
             f"{session_files['files_deleted']} 个。")
 
+    # ⑤ ★ 2026-11-13：Agent 运行轨迹。里面有用户问题、歌词原文和工具结果；
+    #   不跟着清掉的话，我们对用户说的"已清空"就是假话。
+    runs_deleted = 0
+    try:
+        from analysis.agent import trace as agent_trace
+        if target is None:
+            runs_deleted = agent_trace.purge(None)
+        else:
+            for uid in (session_uids or []):
+                runs_deleted += agent_trace.purge(uid)
+    except Exception as e:  # noqa: BLE001
+        print(f"[SingLens] ⚠️ 清理 Agent 轨迹失败：{e}")
+
     _refresh_privacy()
     return ok({
         "scope": scope, "singer_id": target,
@@ -5694,6 +5770,7 @@ async def purge_endpoint(req: Request):
         "templates_deleted": db["templates_deleted"],
         "files_deleted": files["files_deleted"],
         "bytes_freed": files["bytes_freed"],
+        "agent_runs_deleted": runs_deleted,
         # ★ G13：分别回报 —— 混成一个数会让"按演唱者清空"看起来删了文件
         #   而实际上一个都没删（那正是这轮之前的状态）。
         "session_audio_files_deleted": session_files["files_deleted"],
@@ -5713,192 +5790,117 @@ async def purge_endpoint(req: Request):
 
 
 # ══════════════════════════════════════════════════════════════
-# ⑫ GET/PUT /api/config
-# ══════════════════════════════════════════════════════════════
-@app.get("/api/config")
-async def get_config():
-    _refresh_privacy()
-    return ok(CONFIG)
-
-
-@app.put("/api/config")
-async def put_config(req: Request):
-    """按【组】更新。可以只传某一组里的某几个键：
-         {"feedback": {"show_jargon": true}}
-
-    ⚠️⚠️ 这里曾经有一个**永久性**故障（审计查出、我复核确认、2026-09-23 修）：
-        旧实现是"边校验边写入"——`for k, v in patch.items(): CONFIG[grp][k] = v`。
-        Python 的 `json.loads` **默认接受非标准的 `NaN` / `Infinity`**，
-        于是 `PUT {"feedback":{"ai_comment":NaN}}` 会把这个 NaN **写进 CONFIG**，
-        然后渲染响应时 `JSONResponse`（`allow_nan=False`）抛错 → 500。
-        而值已经写进去了 ⇒ **此后每一次 `GET /api/config` 都是 500，重启前不自愈**。
-        实测：设置页与任何读配置的流程全部失效，现场只看到"配置坏了"。
-
-    修法三条，缺一不可：
-      ① **先全量校验、再原子替换** —— 校验失败时 CONFIG 一个字节都不动
-      ② 拒绝非有限浮点（`math.isfinite`）与类型不符的值
-      ③ 组名/键名不在 CONFIG 里就报错（旧实现是 `continue` 静默忽略，
-         于是前端拼错键名时以为存上了，其实什么都没发生）
-    """
-    deny = _remote_operator_denied(req)
-    if deny:
-        return deny
-    body = await _json(req)
-    if not isinstance(body, dict):
-        return fail("BAD_REQUEST", "请求体必须是一个对象，形如 {\"feedback\": {\"show_jargon\": true}}。")
-
-    def bad(v) -> Optional[str]:
-        """值不合法时返回原因，合法返回 None。"""
-        if isinstance(v, bool) or v is None:
-            return None
-        if isinstance(v, (int, float)):
-            # ★ 关键：NaN/Inf 会让 JSONResponse 抛错，而旧实现已经把它写进去了
-            if not math.isfinite(float(v)):
-                return f"{v!r} 不是有限数值"
-            return None
-        if isinstance(v, str):
-            return None
-        return f"不支持的类型 {type(v).__name__}"
-
-    # ── ① 先全量校验（不动 CONFIG）──
-    staged, changed = {}, {}
-    for grp, patch in body.items():
-        if grp not in CONFIG:
-            return fail("BAD_REQUEST", f"没有「{grp}」这一组设置。"
-                                      f"可用的组：{', '.join(sorted(CONFIG))}")
-        if not isinstance(patch, dict):
-            return fail("BAD_REQUEST", f"「{grp}」的值必须是一个对象。")
-        staged[grp] = {}
-        for k, v in patch.items():
-            if k not in CONFIG[grp]:
-                return fail("BAD_REQUEST", f"「{grp}」里没有「{k}」这一项。"
-                                          f"可用的键：{', '.join(sorted(CONFIG[grp]))}")
-            why = bad(v)
-            if why is not None:
-                return fail("BAD_REQUEST", f"「{grp}.{k}」的值不合法：{why}。")
-            # 类型要与现值一致（避免把字符串塞进数值项，日后算得莫名其妙）
-            cur = CONFIG[grp][k]
-            if isinstance(cur, bool) and not isinstance(v, bool):
-                return fail("BAD_REQUEST", f"「{grp}.{k}」应该是 true/false。")
-            if isinstance(cur, (int, float)) and not isinstance(cur, bool) \
-                    and not isinstance(v, (int, float)):
-                return fail("BAD_REQUEST", f"「{grp}.{k}」应该是数值。")
-            staged[grp][k] = v
-            changed[f"{grp}.{k}"] = v
-
-    # ── ② 校验全过了才原子替换 ──
-    for grp, kv in staged.items():
-        CONFIG[grp].update(kv)
-    return ok({"updated": changed, "config": CONFIG})
-
-
-# ══════════════════════════════════════════════════════════════
-# 附加：参考曲目列表（前端 bootstrap 需要）
-# ══════════════════════════════════════════════════════════════
-# ★ LLM API key 的前端管理（2026-10-07）
+# ⑫ 音频听感补充（实验，2026-10-29）
 #
-#   为什么要这三个端点：原来 key 只能靠环境变量或手写文件 ——
-#   用户在**界面上配不了**，而"要在答辩现场用真 LLM"就必须能当场配。
-#
-#   ⚠️ 三条安全约束（改动这里之前先读）：
-#     ① **key 永不回显** —— GET 只返回 `configured` / `hint`（前3+后4）/ `source`
-#     ② 保存前**先真调一次**验证（`test_key`）—— 格式对但欠费的 key
-#        到处都是，不验的话答辩现场才发现
-#     ③ 文件在 `.gitignore` 里（`*.key` / `*llm_key*`），绝不进版本库
+# 默认关闭，只在报告页用户明确点击时调用；只发当前会话 8 秒以内的问题片段。
+# 它不是评分器：返回一段自由听感，前端标成“实验”，不写回 ScoreReport。
 # ══════════════════════════════════════════════════════════════
-@app.get("/api/llm/key")
-async def llm_key_status():
-    """查询 LLM key 的**状态**（不回显 key 本身）。"""
-    from analysis import coach as _c
-    src = _c.key_source()
+@app.get("/api/audio-coach/status")
+async def audio_coach_status(req: Request):
+    user = getattr(req.state, "user", None)
+    if not user and auth_mod.auth_enabled():
+        return fail("UNAUTHORIZED", "请先登录。", 401)
+    return ok(audio_coach_mod.status())
+
+
+@app.get("/api/audio-coach/key")
+async def audio_coach_key_status(req: Request):
+    """给设置页看 Qwen key 状态；只返回 hint，不回显 key。"""
+    user = getattr(req.state, "user", None)
+    if not user and auth_mod.auth_enabled():
+        return fail("UNAUTHORIZED", "请先登录。", 401)
     return ok({
-        "configured": src != "none",
-        "source": src,                       # env / file / none
-        "hint": _c.key_hint(),
-        "base": (os.environ.get("SINGLENS_LLM_BASE")
-                 or _c.DEFAULT_BASE),
-        "model": (os.environ.get("SINGLENS_LLM_MODEL")
-                  or _c.DEFAULT_MODEL),
-        "enabled": bool(CONFIG.get("feedback", {}).get("ai_comment")),
+        "configured": audio_coach_mod.key_source() != "none",
+        "source": audio_coach_mod.key_source(),
+        "hint": audio_coach_mod.key_hint(),
+        "model": audio_coach_mod.MODEL,
+        "base": audio_coach_mod.BASE,
+        "available": audio_coach_mod.available()[0],
     })
 
 
-@app.post("/api/llm/key")
-async def llm_key_save(req: Request):
-    """保存 key，并**立刻真调一次**验证。
-
-    请求体：`{"key": "sk-...", "enable": true}`
-    `enable` 省略时默认 true（配 key 的意图就是要用它）。
-    """
-    from analysis import coach as _c
+@app.post("/api/audio-coach/key")
+async def audio_coach_key_save(req: Request):
+    """保存 Qwen key；先发一句文本验证，不发送音频。"""
+    user = getattr(req.state, "user", None)
+    if not user and auth_mod.auth_enabled():
+        return fail("UNAUTHORIZED", "请先登录。", 401)
+    if not _auth_same_origin(req):
+        return fail("FORBIDDEN", "拒绝了跨站密钥请求。", 403)
     body = await _json(req)
-    if not isinstance(body, dict):
-        return fail("BAD_REQUEST", "请求体必须是一个对象，形如 {\"key\": \"sk-...\"}。")
-    key = body.get("key")
+    key = body.get("key") if isinstance(body, dict) else None
     if not isinstance(key, str) or not key.strip():
-        return fail("BAD_REQUEST", "缺 key，或 key 不是字符串。")
-    key = key.strip()
-    if len(key) < 12:
-        return fail("BAD_REQUEST", "这把 key 太短了，看着不像真的。")
-    if any(ch in key for ch in " \t\r\n"):
-        return fail("BAD_REQUEST", "key 里有空白字符，多半是复制时带进来的 —— "
-                                   "请重新复制。")
-
-    # ★ 先验证再保存：验证不通过就不落盘，避免"存了一把不能用的"
-    good, why = _c.test_key(key)
+        return fail("BAD_REQUEST", "缺 key，或 key 不是字符串。", 400)
+    good, why = await asyncio.to_thread(audio_coach_mod.test_key, key.strip())
     if not good:
-        return fail("BAD_REQUEST", f"这把 key 用不了：{why}")
-    if not _c.save_key(key):
-        return fail("SERVER_ERROR", "key 写不进文件（检查 data/ 目录权限）。")
-
-    # 配了 key 就默认打开开关 —— 否则用户会以为"配了但没生效"
-    if body.get("enable", True):
-        # ⚠️ 这里**不要**调 `save_config()` —— 那个函数**根本不存在**。
-        #    项目的 CONFIG 是**内存态**（`PUT /api/config` 也只改内存），
-        #    重启就回到默认值。所以设置页的开关本来就不持久化，
-        #    本端点跟着同样处理即可（保持行为一致）。
-        #    ⚠️ 但要如实说明：用户会以为"配好了会一直有效"，
-        #       所以前端要提示"重启服务后需要重新配置"。
-        CONFIG.setdefault("feedback", {})["ai_comment"] = True
-    print(f"[SingLens] LLM key 已保存（{_c.key_source()}，"
-          f"{_c.key_hint()}），AI 点评 = "
-          f"{CONFIG.get('feedback', {}).get('ai_comment')}")
-    return ok({"saved": True, "verified": True, "hint": _c.key_hint(),
-               "enabled": bool(CONFIG.get("feedback", {}).get("ai_comment"))})
-
-
-@app.post("/api/llm/key/test")
-async def llm_key_test(req: Request):
-    """测试当前 key 能不能用（不保存）。
-
-    也接受 `{"key": "..."}` 来测一把**还没保存**的 —— 便于"先测再存"。
-    """
-    from analysis import coach as _c
+        return fail("BAD_REQUEST", f"这把 key 用不了：{why}", 400)
     try:
-        body = await _json(req)
-    except Exception:  # noqa: BLE001
-        body = {}
-    k = body.get("key") if isinstance(body, dict) else None
-    k = k.strip() if isinstance(k, str) and k.strip() else None
-    good, why = _c.test_key(k)
-    return ok({"ok": good, "reason": why,
-               "hint": _c.key_hint() if k is None else None})
+        audio_coach_mod.save_key(key.strip())
+    except audio_coach_mod.AudioCoachError as e:
+        return fail(e.code, str(e), e.status)
+    return ok({
+        "saved": True, "verified": True,
+        "hint": audio_coach_mod.key_hint(),
+        "source": audio_coach_mod.key_source(),
+        "model": audio_coach_mod.MODEL,
+    })
 
 
-@app.delete("/api/llm/key")
-async def llm_key_clear():
-    """清掉保存的 key（**环境变量那份清不掉**，会如实说明）。"""
-    from analysis import coach as _c
-    src = _c.key_source()
-    if src == "env":
-        return fail("BAD_REQUEST",
-                    "这把 key 来自环境变量 SINGLENS_LLM_KEY，"
-                    "程序改不了它 —— 请在启动服务前 unset，或改用它启动。")
-    removed = _c.clear_key()
-    CONFIG.setdefault("feedback", {})["ai_comment"] = False
-    return ok({"cleared": removed, "enabled": False})
+@app.delete("/api/audio-coach/key")
+async def audio_coach_key_clear(req: Request):
+    user = getattr(req.state, "user", None)
+    if not user and auth_mod.auth_enabled():
+        return fail("UNAUTHORIZED", "请先登录。", 401)
+    if not _auth_same_origin(req):
+        return fail("FORBIDDEN", "拒绝了跨站密钥请求。", 403)
+    try:
+        removed = audio_coach_mod.clear_key()
+    except audio_coach_mod.AudioCoachError as e:
+        return fail(e.code, str(e), e.status)
+    return ok({"cleared": removed, "configured": False})
 
 
+@app.post("/api/audio-coach/listen")
+async def audio_coach_listen(req: Request):
+    user = getattr(req.state, "user", None)
+    if not user and auth_mod.auth_enabled():
+        return fail("UNAUTHORIZED", "请先登录。", 401)
+    if not _auth_same_origin(req):
+        return fail("FORBIDDEN", "拒绝了跨站音频请求。", 403)
+    body = await _json(req)
+    uid = str(body.get("session_uid") or "").strip()
+    if not uid:
+        return fail("BAD_REQUEST", "缺少 session_uid。", 400)
+    if not re.match(r"^[A-Za-z0-9_-]{3,64}$", uid):
+        return fail("BAD_REQUEST", "session_uid 格式不对。", 400)
+    report = practice_store.load_report(uid)
+    if not report:
+        return fail("NOT_FOUND", f"没有这次练习（{uid}）的报告。", 404)
+    owner = practice_store.session_owner(uid) or report.get("singer_id")
+    if user and user.get("role") != "admin" and owner != user.get("singer_id"):
+        return fail("FORBIDDEN", "这次练习不属于当前账号。", 403)
+    meta = report.get("meta") or {}
+    if not meta.get("audio_available"):
+        return fail("CONFLICT", "这一遍的录音已不在本机，没法再听。", 409)
+    avail, why = audio_coach_mod.available()
+    if not avail:
+        return fail("CONFLICT", why, 409)
+    try:
+        # requests 是同步的；放到线程池，别卡住 WebSocket 和别的请求。
+        force = bool(body.get("force"))
+        result = await asyncio.to_thread(
+            audio_coach_mod.listen, uid, report, force=force)
+        return ok(result)
+    except audio_coach_mod.AudioCoachError as e:
+        return fail(e.code, str(e), e.status)
+    except Exception as e:  # noqa: BLE001
+        print(f"[SingLens] ⚠️ 音频听感失败（{uid}）：{e}")
+        return fail("AUDIO_COACH_FAILED", "音频听感暂时不可用。", 502)
+
+
+# ══════════════════════════════════════════════════════════════
+# ⑫ GET/PUT /api/config
+# ══════════════════════════════════════════════════════════════
 # ══════════════════════════════════════════════════════════════
 # ★ MIDI 导入（2026-10-07）
 #
@@ -6945,291 +6947,6 @@ WEB_DIR = os.path.join(ROOT, "web")
 #   真实错误混在噪声里，谁都不会再去看控制台（探针也因此误报过 3 条失败）。
 #   用 SVG（红方块 + S，与侧栏 logo 同形），并在各页 `<head>` 里声明，
 #   现代浏览器看到声明就不会再去要 `/favicon.ico`。
-_FAVICON = (
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
-    '<rect width="64" height="64" rx="10" fill="#c93a2a"/>'
-    '<text x="32" y="45" font-family="Outfit,Helvetica,Arial,sans-serif" '
-    'font-size="42" font-weight="800" fill="#ffffff" text-anchor="middle">S</text>'
-    '</svg>'
-)
-
-
-@app.get("/favicon.svg")
-async def favicon_svg():
-    from fastapi.responses import Response
-    return Response(content=_FAVICON, media_type="image/svg+xml",
-                    headers={"Cache-Control": "public, max-age=86400"})
-
-
-@app.get("/favicon.ico")
-async def favicon_ico():
-    """兜底：老浏览器/没声明 icon 的页面仍会来要 `.ico`，给同一份 SVG。
-
-    ⚠️ Content-Type 是 image/svg+xml（不是 image/x-icon）—— 这是**故意的**：
-       Chrome/Edge/Firefox 都按内容嗅探，SVG 能正常显示；
-       而如果这里返回 404，控制台就会一直挂一条红色报错（见上）。
-    """
-    from fastapi.responses import Response
-    return Response(content=_FAVICON, media_type="image/svg+xml",
-                    headers={"Cache-Control": "public, max-age=86400"})
-
-
-@app.get("/selftest.html")
-async def selftest_page():
-    """契约自检页（前端侧 71 项）。"""
-    return FileResponse(os.path.join(WEB_DIR, "selftest.html"))
-
-
-@app.get("/apitest.html")
-async def apitest_page():
-    """适配层测试页（真浏览器打真实后端）。"""
-    return FileResponse(os.path.join(WEB_DIR, "apitest.html"))
-
-
-@app.get("/collect")
-async def collect_page(request: Request, token: str = ""):
-    """录音采集页（实验用）。
-
-    ★ 带 `?token=<操作者令牌>` 打开时，顺手种一个 cookie（`sl_op`）。
-      为什么要有这一步：采集页里那些 fetch 是**页面自己**发的，如果要求
-      每个请求都手动带 header，就得改一堆调用点；种了 cookie 之后
-      "一次带令牌打开、后续自动带上"，操作者只需点控制台打印的那条链接。
-      cookie 设成 SameSite=Strict + HttpOnly。（不是登录态，本服务没有账号。）
-    """
-    from fastapi.responses import FileResponse as _FR
-    resp = _FR(os.path.join(WEB_DIR, "collect.html"))
-    want = ""
-    try:
-        from web.experiment import operator_token, DISABLE_TOKEN
-        want = "" if DISABLE_TOKEN else operator_token()
-    except Exception:  # noqa: BLE001
-        want = ""
-    if want and token == want:
-        resp.set_cookie("sl_op", token, httponly=True, samesite="strict",
-                        max_age=30 * 24 * 3600)
-    return resp
-
-
-@app.get("/rate")
-async def rate_page():
-    """盲评页（实验用）。"""
-    return FileResponse(os.path.join(WEB_DIR, "rate.html"))
-
-
-@app.get("/experiment")
-async def experiment_page():
-    """采集进度页：直接返回 JSON，浏览器看即可。"""
-    from web.experiment import connect, progress
-    con = connect()
-    try:
-        return ok(progress(con))
-    finally:
-        con.close()
-
-
-@app.get("/apitest")
-async def apitest():
-    """apiSource 适配层测试页（真浏览器里打真实后端）。"""
-    return FileResponse(os.path.join(WEB_DIR, "apitest.html"))
-
-
-@app.get("/login")
-async def login_page(request: Request):
-    """产品登录页。
-
-    已登录访问 /login 直接回首页；未登录才显示。登录页本身不加载 SPA，
-    避免在未认证时把整套应用 JS 和配置请求先跑一遍。
-    """
-    if not auth_mod.auth_enabled():
-        return RedirectResponse("/", status_code=302)
-    if auth_mod.user_from_request(request):
-        return RedirectResponse("/", status_code=302)
-    p = os.path.join(WEB_DIR, "login.html")
-    if not os.path.exists(p):
-        return JSONResponse({"ok": False, "error": {
-            "code": "NOT_FOUND", "message": "登录页文件不存在。"}}, status_code=500)
-    return FileResponse(p, headers={"Cache-Control": "no-store"})
-
-
-@app.get("/api/auth/me")
-async def auth_me(request: Request):
-    if not auth_mod.auth_enabled():
-        return ok({"auth_enabled": False, "user": {
-            "user_id": "local", "username": "local", "role": "admin",
-            "singer_id": None, "display_name": "本机", "must_change_password": False}})
-    user = auth_mod.user_from_request(request)
-    if not user:
-        return fail("UNAUTHORIZED", "请先登录。", 401)
-    return ok({"auth_enabled": True, "user": user})
-
-
-@app.post("/api/auth/login")
-async def auth_login(request: Request):
-    if not auth_mod.auth_enabled():
-        return fail("CONFLICT", "当前服务未启用登录。", 409)
-    if not _auth_same_origin(request):
-        return fail("FORBIDDEN", "拒绝了跨站登录请求。", 403)
-    body = await _json(request)
-    username = str(body.get("username") or "").strip()
-    password = str(body.get("password") or "")
-    remember = bool(body.get("remember"))
-    ip = (request.client.host if request.client else "") or ""
-    key = auth_mod.rate_key(ip, username)
-    if auth_mod.attempts_left(key) <= 0:
-        return fail("TOO_MANY", "尝试次数过多，请 10 分钟后再试。", 429)
-    user = auth_mod.authenticate(username, password)
-    if not user:
-        auth_mod.record_failure(key)
-        return fail("UNAUTHORIZED", "账号或密码对不上，再试一次。", 401)
-    auth_mod.clear_failures(key)
-    ttl = auth_mod.REMEMBER_TTL if remember else auth_mod.SESSION_TTL
-    token = auth_mod.create_session(
-        user["user_id"], ttl=ttl, ip=ip,
-        user_agent=request.headers.get("user-agent") or "")
-    resp = JSONResponse({"ok": True, "data": {"user": user}})
-    resp.set_cookie(
-        auth_mod.COOKIE_NAME, token, max_age=ttl,
-        httponly=True, samesite="lax", secure=auth_mod.cookie_secure(), path="/")
-    resp.headers["Cache-Control"] = "no-store"
-    return resp
-
-
-@app.get("/api/auth/register")
-async def auth_register_status(request: Request):
-    """登录页用它决定是否显示“创建练习账号”。
-
-    默认只允许回环地址注册；局域网开放必须显式设 SINGLENS_REGISTER=open。
-    """
-    if not auth_mod.auth_enabled():
-        return ok({"allowed": False, "mode": "closed", "reason": "登录未启用。"})
-    ip = (request.client.host if request.client else "") or ""
-    allowed = auth_mod.register_allowed(ip)
-    reason = ("本机可以创建练习账号。"
-              if allowed else "注册只在本机开放；局域网账号由管理员发放。")
-    return ok({"allowed": allowed, "mode": auth_mod.register_mode(),
-               "reason": reason})
-
-
-@app.post("/api/auth/register")
-async def auth_register(request: Request):
-    """创建“演唱者 + 账号”并直接登录。
-
-    ⚠️ 默认 loopback：只有本机能注册。局域网要开放，必须显式设置
-       `SINGLENS_REGISTER=open`，并且自己承担同网段开号的风险。
-    """
-    if not auth_mod.auth_enabled():
-        return fail("CONFLICT", "当前服务未启用登录。", 409)
-    ip = (request.client.host if request.client else "") or ""
-    if not auth_mod.register_allowed(ip):
-        return fail("FORBIDDEN", "注册只在本机开放；局域网账号由管理员发放。", 403)
-    if not _auth_same_origin(request):
-        return fail("FORBIDDEN", "拒绝了跨站注册请求。", 403)
-    body = await _json(request)
-    name = str(body.get("name") or "").strip()
-    username = str(body.get("username") or "").strip()
-    password = str(body.get("password") or "")
-    confirm = str(body.get("confirm") or "")
-    if not name:
-        return fail("BAD_REQUEST", "先给自己起一个练习名字。", 400)
-    if len(name) > SINGER_NAME_MAX:
-        return fail("BAD_REQUEST", f"名字太长了（{len(name)} > {SINGER_NAME_MAX} 字）。", 400)
-    if not auth_mod.USERNAME_RE.match(username):
-        return fail("BAD_REQUEST", "账号只允许字母/数字/下划线/点/短横线，3–32 位。", 400)
-    if len(password) < auth_mod.MIN_PASSWORD:
-        return fail("BAD_REQUEST", f"密码至少 {auth_mod.MIN_PASSWORD} 位。", 400)
-    if confirm and password != confirm:
-        return fail("BAD_REQUEST", "两次输入的密码不一致。", 400)
-    if auth_mod.get_user_by_username(username):
-        return fail("CONFLICT", "这个账号已经被占用了。", 409)
-    sid = f"u_{uuid.uuid4().hex[:8]}"
-    if practice_store.name_taken(name, sid):
-        return fail("CONFLICT", f"已经有一位练习者叫「{name}」了。", 409)
-    created_singer = False
-    try:
-        practice_store.upsert_singer(sid, name)
-        created_singer = True
-        user = auth_mod.create_user(
-            username=username, password=password, role="singer",
-            singer_id=sid, display_name=name)
-    except (ValueError, sqlite3.IntegrityError) as e:
-        if created_singer:
-            try:
-                practice_store.delete_singer(sid)
-            except Exception:
-                pass
-        return fail("CONFLICT", f"创建账号失败：{e}", 409)
-    except Exception as e:  # noqa: BLE001
-        if created_singer:
-            try:
-                practice_store.delete_singer(sid)
-            except Exception:
-                pass
-        return fail("INTERNAL", f"创建账号失败：{e}", 500)
-    token = auth_mod.create_session(
-        user["user_id"], ttl=auth_mod.SESSION_TTL, ip=ip,
-        user_agent=request.headers.get("user-agent") or "")
-    resp = JSONResponse({"ok": True, "data": {"user": user}})
-    resp.set_cookie(
-        auth_mod.COOKIE_NAME, token, max_age=auth_mod.SESSION_TTL,
-        httponly=True, samesite="lax", secure=auth_mod.cookie_secure(), path="/")
-    resp.headers["Cache-Control"] = "no-store"
-    return resp
-
-
-@app.post("/api/auth/logout")
-async def auth_logout(request: Request):
-    token = auth_mod.token_from_cookie_header(request.headers.get("cookie", ""))
-    auth_mod.revoke_session(token)
-    resp = JSONResponse({"ok": True, "data": {"logged_out": True}})
-    resp.delete_cookie(auth_mod.COOKIE_NAME, path="/")
-    resp.headers["Cache-Control"] = "no-store"
-    return resp
-
-
-@app.post("/api/auth/password")
-async def auth_password(request: Request):
-    if not auth_mod.auth_enabled():
-        return fail("CONFLICT", "当前服务未启用登录。", 409)
-    user = auth_mod.user_from_request(request)
-    if not user:
-        return fail("UNAUTHORIZED", "请先登录。", 401)
-    body = await _json(request)
-    current = str(body.get("current_password") or "")
-    new = str(body.get("new_password") or "")
-    full = auth_mod.get_user_by_id(user["user_id"])
-    if not full or not auth_mod.verify_password(current, full["password_hash"]):
-        return fail("UNAUTHORIZED", "当前密码不正确。", 401)
-    try:
-        auth_mod.set_password(user["user_id"], new)
-    except ValueError as e:
-        return fail("BAD_REQUEST", str(e), 400)
-    auth_mod.revoke_user_sessions(user["user_id"])
-    resp = JSONResponse({"ok": True, "data": {
-        "changed": True, "message": "密码已更新，请重新登录。"}})
-    resp.delete_cookie(auth_mod.COOKIE_NAME, path="/")
-    return resp
-
-
-@app.get("/")
-async def index(request: Request):
-    """产品入口。
-
-    ★ B1-1（2026-09-20）之前这里返回的是 `selftest.html`（接口自检页）——
-      因为当时还没有产品前端。现在 `web/index.html` 已就位（v7 拆分而来），
-      所以 `/` 指向它；自检页移到 `/selftest.html`（本来就挂着）。
-      若 index.html 不存在，退回自检页，不至于白屏。
-
-    ★ 2026-10-28：启用登录后，未登录先回 `/login`。
-      只保护产品入口；`/collect`、`/rate` 仍按原来的操作者令牌走。
-    """
-    if auth_mod.auth_enabled() and not auth_mod.user_from_request(request):
-        return RedirectResponse("/login", status_code=302)
-    for name in ("index.html", "selftest.html"):
-        p = os.path.join(WEB_DIR, name)
-        if os.path.exists(p):
-            return FileResponse(p)
-    return JSONResponse(
-        {"ok": True, "data": {"service": "SingLens API", "docs": "/docs"}})
 
 
 class _NoCacheStatic(StaticFiles):
@@ -7282,6 +6999,14 @@ async def _startup_body():
     warm_up(SR)
     _cleanup_song_jobs()
     _load_song_jobs()
+    # 2026-11-13：Agent 轨迹按 7 天滚动，避免无限增长（且它是隐私数据）。
+    try:
+        from analysis.agent import trace as _agent_trace
+        _n = _agent_trace.cleanup(7)
+        if _n:
+            print(f"[SingLens] 已清理 {_n} 个超过 7 天的 Agent 轨迹文件")
+    except Exception as _e:  # noqa: BLE001
+        print(f"[SingLens] ⚠️ Agent 轨迹清理跳过：{_e}")
     # ★ 把磁盘上的练习记录读回内存。放在 warm_up 之后：预热要 40 多秒，
     #   用户在这期间打开页面也该看得到历史。
     load_practice_history()

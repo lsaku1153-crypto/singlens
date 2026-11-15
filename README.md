@@ -15,16 +15,10 @@
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-
-# 首次运行：为现有演唱者生成账号（一次性密码在 data/initial_accounts.txt）
-python tools/accounts.py init
-
 python web/server.py --host 127.0.0.1 --port 8000
 ```
 
-打开 <http://127.0.0.1:8000>，会进入登录页。
-登录页也支持本机创建练习账号；默认只允许回环地址注册，
-局域网开放需显式设置 `SINGLENS_REGISTER=open`。
+打开 <http://127.0.0.1:8000>。
 
 ## 可选能力
 
@@ -37,15 +31,13 @@ python web/server.py --host 127.0.0.1 --port 8000
 ```
 analysis/   音高、对齐、节奏、评分、练习计划
 web/        FastAPI 服务与前端（web/js、web/css、web/fonts）
-tools/      前端绑定/契约检查脚本、账号管理 CLI
+tools/      前端绑定/契约检查脚本
 ```
 
 ## 数据与隐私
 
-- 原始音频、录音、上传歌曲、数据库、模型和账号文件都在本地 `data/`，**不进入版本库**；
-- 唱后 AI 教练只接收报告文本（指标、问题片段、歌词、自述偏好），不接收音频；
-- 生产使用请只绑定 `127.0.0.1`，或在 HTTPS 反向代理后设置
-  `SINGLENS_COOKIE_SECURE=1`。局域网普通 HTTP 下密码不是加密传输。
+`data/` 下是本地数据库、录音、上传歌曲、分离音轨、模型和操作者令牌，
+**不进入版本库**。
 
 ## 字体
 

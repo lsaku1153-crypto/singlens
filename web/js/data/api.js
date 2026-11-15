@@ -18,6 +18,7 @@
  * 这样 UI 一行都不用改，后端也保持契约形状。
  */
 import { DataSource, unwrap, ApiError, SessionStatus } from './source.js';
+import { postSSE } from './sse.js';
 // ★ 身份的唯一入口（`web/js/data/identity.js`）—— 别再各处自己读 storage，
 //   那样"换人"就会有漏网之鱼（见该文件头部的说明）。
 //   ⚠️ 是 `getSingerId()` 不是 `singerId()`：那个名字在 `bindings.js` 里，
@@ -261,13 +262,105 @@ export class ApiSource extends DataSource {
     return req('GET', `/session/${uid}/report?singer_id=${encodeURIComponent(getSingerId())}`);
   }
 
-  /** P0 追问教练：只把报告/问题发给后端，不上传录音。 */
-  coachChat(uid, message, history = [], focus = null) {
-    return req('POST', `/session/${uid}/coach/chat`, {
+  /** 实验：千问听感补充。默认不调用；只有报告页明确点击/勾选才发。 */
+  audioCoachStatus() {
+    return req('GET', '/audio-coach/status');
+  }
+
+  audioCoachListen(uid, { force = false } = {}) {
+    return req('POST', '/audio-coach/listen', {
       singer_id: getSingerId(),
-      message,
-      history: (history || []).slice(-6),
-      focus: focus || null,
+      session_uid: uid,
+      force: !!force,
+    });
+  }
+
+  audioCoachKeyStatus() {
+    return req('GET', '/audio-coach/key');
+  }
+
+  saveAudioCoachKey(key) {
+    return req('POST', '/audio-coach/key', { key });
+  }
+
+  clearAudioCoachKey() {
+    return req('DELETE', '/audio-coach/key');
+  }
+
+  /**
+   * 追问教练（2026-11-14 起走 Agent）。
+   *
+   * 后端从 `/coach/chat`（单轮）切到 `/agent/chat`（工具调用 + SSE）：
+   * 这里把 SSE 的 `done` 映射回旧契约，UI 不用改：
+   *   evidence            ← 本次真正调过的工具标签
+   *   remember_candidates ← propose_preference 的候选（仍要用户点「记住」）
+   *   mode                ← agent / agent_repair / rule_fallback
+   * 报告页也逐字渲染 `delta`（与 /agent 控制台同一套 SSE）；工具调用不上屏。
+   */
+  async coachChat(uid, message, history = [], focus = null, opts = {}) {
+    const hint = (focus && typeof focus.line_no === 'number')
+      ? `（我指的是第 ${focus.line_no} 句）` : '';
+    // 报告页先把本轮 user 消息 push 进 history 再调用；服务端又会单独接 message，
+    // 不去重就会把同一个问题发两遍（多花 token，还可能让模型答"你问了两次"）。
+    const prior = (history || []).slice(-6);
+    const last = prior[prior.length - 1];
+    if (last && last.role === 'user' && String(last.content) === String(message)) {
+      prior.pop();
+    }
+    let done;
+    try {
+      done = await postSSE(
+        `${BASE}/session/${encodeURIComponent(uid)}/agent/chat`,
+        {
+          singer_id: getSingerId(),
+          message: hint + message,
+          history: prior,
+        },
+        (event, data) => {
+          if (event === 'delta' && data && data.text
+              && typeof opts.onDelta === 'function') {
+            opts.onDelta(String(data.text));
+          }
+        });
+    } catch (e) {
+      if (e && e.status === 401) {
+        const next = encodeURIComponent(location.pathname + location.search + location.hash);
+        location.replace('/login?next=' + next);
+      }
+      throw e;
+    }
+    if (!done) {
+      // 流结束但没有 done：不要把它伪装成"规则版回答"（会显示一句
+      // "这次没有拿到回答" 冒充教练答案）。让调用方走错误分支。
+      const err = new Error('连接中断，没拿到回答。');
+      err.status = 0;
+      throw err;
+    }
+    const d = done;
+    return {
+      answer: d.answer || '这次没有拿到回答。',
+      mode: d.mode || 'rule_fallback',
+      scope: 'report',
+      evidence: (Array.isArray(d.evidence) ? d.evidence : [])
+        .map((label) => ({ label })),
+      remember_candidates: Array.isArray(d.proposals) ? d.proposals : [],
+      practice: d.practice ? {} : null,
+      followups: [],
+      suggestions: [],
+      fallback_reason: d.verify_reason || d.stop_reason || '',
+      stop_reason: d.stop_reason || '',
+    };
+  }
+
+  /**
+   * Agent 提议的偏好：走审批端点（与 Agent 契约里的 `/agent/apply` 同一份）。
+   * 报告页的「记住」按钮用这个，不再借用 `/profile/note` 的通用入口。
+   */
+  applyPreference(uid, text) {
+    return req('POST', `/session/${encodeURIComponent(uid)}/agent/apply`, {
+      action: 'save_preference',
+      singer_id: getSingerId(),
+      text,
     });
   }
 

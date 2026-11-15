@@ -43,6 +43,72 @@
 </svg>
 
 <div class="bgfx" aria-hidden="true">
+  <!-- 2026-10-30：更明确的“测量纸”背景层。
+       网格是纸，斜线是构造线，波形是这一页正在发生的信号。 -->
+  <svg class="bg-lines" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
+    <defs>
+      <linearGradient id="bg-line-fade" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#0c0d10" stop-opacity="0"/>
+        <stop offset=".18" stop-color="#0c0d10" stop-opacity=".32"/>
+        <stop offset=".68" stop-color="#0c0d10" stop-opacity=".20"/>
+        <stop offset="1" stop-color="#0c0d10" stop-opacity="0"/>
+      </linearGradient>
+      <linearGradient id="bg-red-fade" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#cf3f2a" stop-opacity="0"/>
+        <stop offset=".26" stop-color="#cf3f2a" stop-opacity=".58"/>
+        <stop offset=".74" stop-color="#cf3f2a" stop-opacity=".24"/>
+        <stop offset="1" stop-color="#cf3f2a" stop-opacity="0"/>
+      </linearGradient>
+      <pattern id="bg-minor" width="40" height="40" patternUnits="userSpaceOnUse">
+        <path d="M40 0H0V40" fill="none" stroke="rgba(12,13,16,.05)" stroke-width="1"/>
+      </pattern>
+    </defs>
+    <rect width="1600" height="1000" fill="url(#bg-minor)" opacity=".55"/>
+    <g class="bg-frame" fill="none" stroke="rgba(12,13,16,.23)"
+       vector-effect="non-scaling-stroke">
+      <path d="M104 0V1000M1496 0V1000M0 82H1600M0 918H1600"/>
+      <path class="bg-diag" d="M-120 1120L1720 -120" stroke-dasharray="1 10" opacity=".7"/>
+      <path class="bg-diag" d="M-120 -120L1720 1120" stroke-dasharray="1 18" opacity=".42"/>
+    </g>
+    <g class="bg-axis" fill="none" stroke="rgba(207,63,42,.38)"
+       vector-effect="non-scaling-stroke">
+      <path d="M104 918H1496"/>
+      <path d="M104 909v18M344 912v12M584 912v12M824 912v12M1064 912v12M1304 912v12M1496 909v18"/>
+      <path d="M1496 82v836"/>
+    </g>
+    <g class="bg-traces" fill="none" vector-effect="non-scaling-stroke">
+      <path class="trace trace-a" stroke="url(#bg-line-fade)" stroke-width="1.15"
+            d="M-70 724C178 690 306 806 512 748S774 596 984 646 1316 770 1680 688"/>
+      <path class="trace trace-b" stroke="url(#bg-line-fade)" stroke-width=".85"
+            d="M-70 844C190 866 300 724 494 774S756 878 980 802 1314 684 1680 762"/>
+      <path class="trace trace-red" stroke="url(#bg-red-fade)" stroke-width="1.25"
+            d="M-70 612C222 566 344 632 552 590S884 486 1112 552 1408 652 1680 574"/>
+      <path class="trace trace-thin" stroke="rgba(12,13,16,.14)" stroke-width=".75"
+            d="M-70 900C220 900 340 880 540 890S900 860 1120 872 1430 900 1680 880"/>
+    </g>
+    <g class="bg-runners">
+      <circle class="runner r1" r="2.6" fill="#cf3f2a">
+        <animateMotion dur="16s" repeatCount="indefinite" rotate="auto"
+          path="M-70 724C178 690 306 806 512 748S774 596 984 646 1316 770 1680 688"/>
+      </circle>
+      <circle class="runner r2" r="1.9" fill="#cf3f2a" opacity=".7">
+        <animateMotion dur="24s" repeatCount="indefinite" rotate="auto"
+          path="M-70 612C222 566 344 632 552 590S884 486 1112 552 1408 652 1680 574"/>
+      </circle>
+    </g>
+    <g class="bg-nodes" fill="none" stroke="rgba(207,63,42,.58)">
+      <circle class="pulse p1" cx="512" cy="748" r="3"/>
+      <circle class="pulse p2" cx="984" cy="646" r="2.4"/>
+      <circle class="pulse p3" cx="1120" cy="560" r="2.2"/>
+      <path d="M552 590h18M561 581v18" stroke="rgba(12,13,16,.34)" stroke-width="1"/>
+      <path d="M984 646h14M991 639v14" stroke="rgba(12,13,16,.24)" stroke-width="1"/>
+    </g>
+  </svg>
+  <div class="bg-ruler top"></div>
+  <div class="bg-ruler side"></div>
+  <div class="bg-sweep h"></div>
+  <div class="bg-sweep v"></div>
+  <div class="bg-scan-x"></div>
   <i class="shard" style="width:460px;height:320px;right:-110px;top:5%;clip-path:polygon(14% 0,100% 0,84% 100%,0 100%)"></i>
   <i class="shard red" style="width:120px;height:88px;right:7%;top:37%;clip-path:polygon(0 0,100% 24%,76% 100%,8% 76%)"></i>
   <i class="shard" style="width:360px;height:250px;left:21%;bottom:-120px;clip-path:polygon(0 22%,86% 0,100% 78%,12% 100%)"></i>

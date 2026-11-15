@@ -60,8 +60,16 @@ def _add_number(out: set[float], v: Any) -> None:
         return
     out.add(round(f, 6))
     out.add(round(abs(f), 6))
+    # ≥10 的测量值：口语常取整（1306.9 → "1306 毫秒"、160.5 → "160 音分"）。
+    # 只加相邻整数，不加百分比容差 —— 1300 仍然拦。
+    if abs(f) >= 10:
+        out.add(float(int(abs(f))))
+        out.add(float(math.ceil(abs(f))))
     # 比率 0–1 与百分数 0–100 是同一件事，允许两种写法。
-    if 0 <= f <= 1:
+    # ⚠️ 严格小于 1：`duration_ratio=1.0`（句长正好）会把 **100** 放进白名单，
+    #    于是模型编的"给你 100 分"被放行。2026-11-12 端到端注入用例实测踩到。
+    #    真正的 100 分本来就在数据里（分数原值），不需要靠比率反推。
+    if 0 <= f < 1:
         out.add(round(f * 100, 6))
     if 0 <= f <= 100:
         out.add(round(f / 100, 6))

@@ -27,7 +27,7 @@ const HTML = `
         <svg class="big deco"><use href="#i-mic"/></svg>
         <h4>需要用到你的麦克风</h4>
         <p>浏览器会弹一个权限请求，点"允许"就行。<br>
-           你的录音文件<b>不上传</b>；音频分析在本机完成，唱后指导由联网 LLM 生成（只发送报告文本/歌词，不发送录音）。</p>
+           你的录音文件<b>默认不上传</b>；音频分析在本机完成，唱后指导由联网 LLM 生成（只发送报告文本/歌词，不发送录音）。只有报告页手动开启「千问听感」时，才会发送这一遍的 8 秒以内问题片段；不改分。</p>
         <div class="acts">
           <button class="btn dark" data-b="perm-ask" type="button"><svg class="ic"><use href="#i-mic"/></svg>允许使用麦克风</button>
           <button class="btn" data-goto="s1" type="button">先看看，不录音</button>

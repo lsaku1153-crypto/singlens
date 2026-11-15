@@ -19,7 +19,6 @@ const HTML = `
           <div class="eyebrow"><svg class="ast"><use href="#d-dia"/></svg>Section 03 — Report</div>
           <h1>这次唱得<br><span class="hollow">怎么样</span></h1>
         </div>
-        <button class="probtn" id="proBtn"><span class="sw"><i></i></span>显示专业术语</button>
       </div>
       <div class="ruler" style="max-width:100%"></div>
       <div class="ruler-lbl" data-b="report-meta">Song: 小星星 · Take 02 · 2026-09-14</div>
@@ -219,15 +218,56 @@ const HTML = `
             <button class="btn solid" data-goto="s2">就按这个再唱一遍 →</button>
             <button class="btn" data-goto="s6">看看成长档案</button>
           </div>
+
+          <!-- 实验：千问音频听感。默认隐藏，只有服务端配置了 key 且这遍有录音才出现。
+               只发问题片段，默认不勾选；它不是评分器，也绝不改分。 -->
+          <div class="audio-listen" data-b="audio-listen" hidden>
+            <div class="audio-listen-top">
+              <span>实验 / 千问听感</span>
+              <s>AUDIO SECOND OPINION</s>
+            </div>
+            <p class="audio-listen-copy">让千问听这一遍的 <b>8 秒以内问题片段</b>，补充音色、力度、句尾这类听感，再给一条下一遍能做的动作。不改分，也不上传整首歌。</p>
+            <label class="audio-consent">
+              <input type="checkbox" data-b="audio-consent">
+              <span>我同意把这一小段发送给千问音频模型</span>
+            </label>
+            <div class="audio-listen-row">
+              <button class="btn" type="button" data-b="audio-listen-btn" disabled>让千问听一遍</button>
+              <button class="audio-rerun" type="button" data-b="audio-rerun" hidden>重新问千问</button>
+              <span class="audio-listen-meta" data-b="audio-listen-meta"></span>
+            </div>
+            <div class="audio-listen-out" data-b="audio-listen-out" aria-live="polite" hidden></div>
+          </div>
+        </div>
+
+        <!-- 测量细节开关放在「拆解」页内，不再作为全局设置。
+             先前经常点了像没反应：jargon 藏在折叠的六块里，而且只在
+             「拆解」页出现；现在开关就在六块上面，打开时自动展开。 -->
+        <div class="decomp-main" data-rep-page="decomp">
+        <div class="tech-bar">
+          <div class="tech-copy">
+            <span class="tech-k">测量细节</span>
+            <s>Measurement Notes</s>
+            <p>dB、Hz、rubato 的原始口径；只解释分数，不改分。</p>
+          </div>
+          <button class="probtn" id="proBtn" type="button" aria-pressed="false">
+            <span class="sw"><i></i></span>
+            <span class="probtn-label">显示测量细节</span>
+          </button>
         </div>
 
 <!-- ⬇︎ 六块分项结论：由 bindings.js 的 s3() 按 comments_by_metric 整块重画
      （原来这里是 v7 稿的冻结文案，与后端结论矛盾 —— 见项目记忆 §59.4、§61）⬇︎ -->
-        <div class="acc-wrap" data-b="acc-wrap" data-rep-page="decomp"></div>
+        <div class="acc-wrap" data-b="acc-wrap"></div>
         <!-- ⬆︎ 到此为止 ⬆︎ -->
+        </div>
 
         <div class="card tick problems" data-rep-page="problems">
           <h3><span class="t" data-b="problem-title">哪些地方需要再练</span><span class="e">Practice These</span></h3>
+          <div class="plain problems-hint" data-b="problem-hint" hidden>
+            <span>「循环听」只试听这几个音；要跟唱练这一句，去「02 下一遍」。</span>
+            <button class="pbtn" type="button" data-b="problem-goto-practice">去练这一句 →</button>
+          </div>
           <div data-b="problem-list"></div>
           <div class="plain" data-b="problem-empty" hidden
                style="font-size:12.5px;color:var(--ink3)">
@@ -252,8 +292,9 @@ const HTML = `
             <button class="btn dark" type="submit" data-b="ask-send">发送</button>
           </form>
           <div class="ask-foot">
-            只发送报告数字和歌词，不上传录音；回答不改分。开放问题只给建议，
-            不是“系统判定你只能这样唱”。
+            <span>只发送报告数字和歌词，不上传录音；回答不改分。开放问题只给建议，
+            不是“系统判定你只能这样唱”。</span>
+            <button class="pbtn ask-clear" type="button" data-b="ask-clear">清空追问</button>
           </div>
         </div>
       </div>

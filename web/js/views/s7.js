@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 第 07 屏 · 设置
  *
  * ⚠️ **本文件由 `tools/split_v7.py` 自动生成，内容逐字搬自
@@ -59,6 +59,33 @@ const HTML = `
                style="margin-top:12px;font-size:12.5px;color:var(--ink3)">正在读取…</div>
         </div>
       </div>
+
+    <!-- ★ 2026-10-29：千问音频是另一把 DashScope key，和上面的
+         DeepSeek 文本 key 分开。配置入口必须在这里，否则用户只能手改文件。 -->
+    <div class="card tick" data-settings-group="feedback" style="margin-bottom:14px">
+      <h3><span class="t">千问音频</span><span class="e">Qwen Audio</span></h3>
+      <div class="setrow" style="display:block">
+        <div class="info" style="margin-bottom:12px">
+          <b>配一个 DashScope key，报告页才会出现「千问听感」</b>
+          <s>这不是上面那把 DeepSeek key。只有你在报告页勾选后，才会发送当前这一遍的
+             8 秒以内问题片段；key 只留在本机，不写进报告。</s>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input data-b="qwen-key-input" aria-label="千问 DashScope API 密钥" type="password"
+                 autocomplete="off" spellcheck="false" placeholder="sk-…（粘贴 DashScope key）"
+                 style="flex:1;min-width:240px;font-family:var(--mono);
+                        font-size:12.5px;padding:11px 14px;
+                        border:1px solid var(--line2);border-radius:6px;
+                        background:var(--panel);color:var(--ink)">
+          <button class="btn solid" data-b="qwen-key-save"
+                  style="font-size:12.5px;padding:11px 22px">保存并测试</button>
+          <button class="btn" data-b="qwen-key-clear"
+                  style="font-size:12.5px;padding:11px 16px">清除</button>
+        </div>
+        <div data-b="qwen-key-status" class="plain"
+             style="margin-top:12px;font-size:12.5px;color:var(--ink3)">正在读取…</div>
+      </div>
+    </div>
 
     <div class="card tick" data-settings-group="common" style="margin-bottom:14px">
       <h3><span class="t">演唱者</span><span class="e">Singer</span></h3>
@@ -121,10 +148,19 @@ const HTML = `
         <div class="ctl"><button class="sw2 on" data-b="cfg-ai-comment" aria-label="智能点评开关" onclick="this.classList.toggle('on')"><i></i></button></div>
       </div>
 
+      <!-- ★ 手动补（2026-11-13）：报告「拆解」页的「显示测量细节」开关，
+           在设置页也放一行。D4 验收要求它在 .card 容器里，不要悬空。
+           状态由 shell.js 的 setPro() 统一同步（两处按钮共用一个 body.pro）。 -->
       <div class="setrow">
-        <div class="info"><b>显示专业术语</b><s>在报告里显示 dB、Hz、rubato 这类专业说法（默认关闭）</s></div>
-        <div class="ctl"><button class="sw2" id="proSw2" data-b="cfg-jargon" aria-label="专业术语模式开关" onclick="togglePro(this)"><i></i></button></div>
+        <div class="info"><b>显示测量细节</b><s>在每个指标下面显示 dB、Hz、rubato 这类原始口径；只解释分数，不改分。和报告「拆解」页的开关是同一个</s></div>
+        <div class="ctl">
+          <button class="probtn" data-pro-toggle type="button" aria-pressed="false">
+            <span class="sw"><i></i></span>
+            <span class="probtn-label">显示测量细节</span>
+          </button>
+        </div>
       </div>
+
       <div class="setrow" style="flex-wrap:wrap">
         <div class="info"><b>引导音轨音量</b><s>4 拍预备和旋律的音量；不影响麦克风，也不影响评分</s></div>
         <div class="ctl">
@@ -169,11 +205,11 @@ const HTML = `
     <div class="card tick" data-settings-group="privacy" style="margin-bottom:14px">
       <h3><span class="t">数据与隐私</span><span class="e">Privacy</span></h3>
       <div class="setrow">
-        <div class="info"><b>录音保存位置</b><s>录音文件只存在本机，不上传；AI 点评会发送报告文本，见下一行</s></div>
+        <div class="info"><b>录音保存位置</b><s>录音文件只存在本机，默认不上传；只有报告页手动开启「千问听感」时，才会发送这一遍的 8 秒以内问题片段</s></div>
         <div class="ctl"><span class="mono" data-b="privacy-dir" style="font-size:11px;color:var(--ink3)">./data/recordings/sessions/</span></div>
       </div>
       <div class="setrow">
-        <div class="info"><b>AI 点评数据</b><s>录音不上传；报告指标、问题片段、歌词和自述偏好会发给 LLM（DeepSeek 或部署时配置的服务）生成指导。无 key / 断网时降级为本地规则版</s></div>
+        <div class="info"><b>AI 点评数据</b><s>默认录音不上传；报告指标、问题片段、歌词和自述偏好会发给 LLM（DeepSeek 或部署时配置的服务）生成指导。无 key / 断网时降级为本地规则版。「千问听感」是实验功能，需逐次勾选，只发问题片段、不改分</s></div>
         <div class="ctl"><span class="mono" style="font-size:11px;color:var(--ink3)">text only</span></div>
       </div>
       <div class="setrow">
@@ -238,3 +274,4 @@ export async function unmount() {
   if (typeof fn === 'function') return fn();
   return undefined;
 }
+

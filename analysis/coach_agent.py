@@ -232,7 +232,24 @@ def build_context(rep: dict, question: str, focus: dict | None = None) -> dict:
     explicit = _explicit_phrase(rep, q, focus)
     # 没有点名某一句/某段歌词时，“唱法/风格/怎么唱”走自由教练：
     # 可以讲通用声乐/风格知识，不强行拿最差的一句当答案。
-    scope = "general" if (intent == "style" and not explicit) else "report"
+    # 2026-10-30：把“什么是混声/怎么练气息/歌手怎么唱”这类开放音乐问题
+    # 也归到 general；它们不是对这次报告的测量追问，不该被报告 DATA 的
+    # 数字 grounding 拦死。
+    knowledge_hint = any(k in q for k in (
+        "什么是", "什么叫", "怎么练", "如何练", "发声", "混声", "共鸣",
+        "气息", "假声", "唱法", "歌手", "风格", "技巧",
+    ))
+    # “这句/这一遍/报告/我唱”说明仍是在问本次报告，不能因为带了
+    # “怎么练/唱法”就被当成开放知识题。
+    report_hint = any(k in q for k in (
+        "这句", "这一句", "这一遍", "这段", "第", "报告", "我唱", "刚才",
+        "这遍", "本次",
+    ))
+    scope = ("general"
+             if (not explicit and not report_hint
+                 and (intent == "style"
+                      or (intent == "overview" and knowledge_hint)))
+             else "report")
     if scope == "general":
         phrase, line_no = None, None
         notes = []
@@ -517,6 +534,8 @@ _SYSTEM = _persona_header("report") + """
 输出要求：
 1. 用 2–4 段自然中文回答，像教练当面说话；不要写成“总分/音准/节奏/表现力”的清单。
 2. 只引用 DATA 里的数字；最多引用 3 个，DATA 没有的明说“这次没测到”。
+   不要自己计算、补写或外推 DATA 没有的时间点/时间段/秒数；指位置用 DATA 里的
+   句号、时间文本或“第几个音”。
 3. 学生问“我唱得怎么样”时：先用一句有依据的话回应，再说一个最值得改的点，
    最后给一个马上能试的动作；不要从总分开始念。
 4. 提到某句/某拍时带上句号或时间；不确定他指哪句时先问。
@@ -560,42 +579,88 @@ def _answer_llm(ctx: dict, history: list) -> tuple[dict | None, str]:
                   "beat", "style", "practice", "problems", "profile")))}
     user = ("DATA（JSON）：\n" + json.dumps(payload, ensure_ascii=False)
             + "\n\n用户追问：" + (ctx.get("question") or ""))
-    body = {
-        "model": model,
-        "messages": [{"role": "system",
+    base_messages = ([{"role": "system",
                        "content": (_SYSTEM_GENERAL if ctx.get("scope") == "general"
                                    else _SYSTEM)}]
-                    + hist + [{"role": "user", "content": user}],
-        "temperature": 0.55 if ctx.get("scope") == "general" else 0.45,
-        # deepseek-flash 会先产生 reasoning tokens；500 会被推理吃满、正文为空。
-        "max_tokens": 1500,
-    }
-    try:
-        resp = coach._post(f"{base}/chat/completions", key, body, 20.0)
-        raw = (resp["choices"][0]["message"]["content"] or "").strip()
-    except Exception as e:  # noqa: BLE001
-        return None, f"LLM 调用失败：{str(e)[:100]}"
-    a, b = raw.find("{"), raw.rfind("}")
-    if a >= 0 and b > a:
-        raw = raw[a:b + 1]
-    try:
-        obj = json.loads(raw)
-    except Exception:  # noqa: BLE001
-        return None, "LLM 返回不是 JSON"
-    ans = str(obj.get("answer") or "").strip() if isinstance(obj, dict) else ""
-    if not ans:
-        return None, "LLM 返回空回答"
-    bad = coach._violates(ans)
-    if bad:
-        return None, f"LLM 内容不合规（{bad}）"
-    sug = [str(x).strip()[:80] for x in (obj.get("suggestions") or [])
-           if str(x).strip()][:3]
-    bad_num = _grounding.validate_text(
-        ans + "\n" + "\n".join(sug),
-        {"data": payload, "question": ctx.get("question") or ""})
-    if bad_num:
-        return None, f"LLM 内容没有数字依据（{bad_num}）"
-    return {"answer": ans[:900], "suggestions": sug}, ""
+                     + hist + [{"role": "user", "content": user}])
+    messages = list(base_messages)
+    last_reason = ""
+    # 第一版被 grounding 拒掉时，不要立刻退回通用模板；带着具体原因重写一次。
+    # 旧行为是直接 fallback，于是好几个不同问题都得到同一段“报告里能定位到…”
+    # 模板话。只有重写仍不合规才降级。
+    for attempt in range(2):
+        body = {
+            "model": model,
+            "messages": messages,
+            "temperature": (0.55 if ctx.get("scope") == "general" else 0.45)
+                           + (0.15 if attempt else 0),
+            # deepseek-flash 会先产生 reasoning tokens；500 会被推理吃满、正文为空。
+            "max_tokens": 1500,
+        }
+        try:
+            resp = coach._post(f"{base}/chat/completions", key, body, 20.0)
+            raw = (resp["choices"][0]["message"]["content"] or "").strip()
+        except Exception as e:  # noqa: BLE001
+            return None, f"LLM 调用失败：{str(e)[:100]}"
+        a, b = raw.find("{"), raw.rfind("}")
+        if a >= 0 and b > a:
+            raw = raw[a:b + 1]
+        try:
+            obj = json.loads(raw)
+        except Exception:  # noqa: BLE001
+            # 开放音乐问题不强制 JSON：模型有时直接用自然段回答，
+            # 只要内容合规就应该展示，而不是退回通用两条路线。
+            if ctx.get("scope") == "general":
+                plain = raw.strip().strip('`').strip()
+                if len(plain) >= 20 and not coach._violates(plain):
+                    return {"answer": plain[:900], "suggestions": []}, ""
+            return None, "LLM 返回不是 JSON"
+        ans = str(obj.get("answer") or "").strip() if isinstance(obj, dict) else ""
+        if not ans:
+            return None, "LLM 返回空回答"
+        bad = coach._violates(ans)
+        if bad:
+            return None, f"LLM 内容不合规（{bad}）"
+        # 开放音乐问题（歌手怎么唱、什么是混声、怎么练气息）不是这次报告的
+        # 测量结论，允许模型用音乐常识回答；不能拿“报告 DATA 里没有这个数字”
+        # 把整段回答拦掉。报告类问题仍然严格 grounding。
+        bad_num = ""
+        if ctx.get("scope") != "general":
+            bad_num = _grounding.validate_text(
+                ans, {"data": payload, "question": ctx.get("question") or ""})
+        if not bad_num:
+            sug = [str(x).strip()[:80] for x in (obj.get("suggestions") or [])
+                   if str(x).strip()][:3]
+            return {"answer": ans[:900], "suggestions": sug}, ""
+        # 先尝试“去掉含未 grounding 数字的那一句”，保留其余好答案。
+        # 例：模型写“第 1 句开头 0 到 1.2 秒”——1.2 不在 DATA，
+        # 但整段里其余关于第 2–3 个音的建议是对的；直接 fallback 会让
+        # 多个不同问题都变成同一段模板话。
+        keep = []
+        for part in re.split(r"(?<=[。！？!?])", ans):
+            part = part.strip()
+            if not part:
+                continue
+            if not _grounding.validate_text(
+                    part, {"data": payload, "question": ctx.get("question") or ""}):
+                keep.append(part)
+        clean_answer = "".join(keep).strip()
+        if len(clean_answer) >= 40:
+            sug = [str(x).strip()[:80] for x in (obj.get("suggestions") or [])
+                   if str(x).strip()][:3]
+            return {"answer": clean_answer[:900], "suggestions": sug}, ""
+        last_reason = f"LLM 内容没有数字依据（{bad_num}）"
+        if attempt == 0:
+            messages = base_messages + [
+                {"role": "assistant", "content": raw[:1400]},
+                {"role": "user", "content": (
+                    f"上一版引用了 DATA 里没有的数字：{bad_num}。"
+                    "请重写回答：只使用 DATA 里已有的数字；不要自己计算或补写"
+                    "时间点/时间段/秒数。需要指位置时用「第 X 句」「某几个音」"
+                    "或 DATA 里已有的时间文本。")},
+            ]
+    return None, last_reason
+
 
 
 def chat(rep: dict, question: str, history: list | None = None,
@@ -632,3 +697,12 @@ def chat(rep: dict, question: str, history: list | None = None,
             out["fallback_reason"] = why
     out["latency_ms"] = int((time.time() - t0) * 1000)
     return out
+
+
+def rule_only(rep: dict, question: str, focus: dict | None = None) -> str:
+    """只要规则版答案，不调 LLM。
+
+    给 Agent 降级用：先算好一份确定性答案，校验不过时直接用它兜底，
+    不必再调一次模型（也避免"降级时又编一段"）。
+    """
+    return _answer_rule(build_context(rep, question, focus))["answer"]
